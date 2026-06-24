@@ -89,6 +89,14 @@ class DebugInfo(BaseModel):
     # Per-requirement raw scores (handy for the frontend debug panel / tuning).
     scores: dict[str, float] = Field(default_factory=dict)
     notes: list[str] = Field(default_factory=list)
+    # Improvement-phase debug blocks (all optional).
+    segmentation: dict | None = None
+    pose: dict | None = None
+    model_scores: dict[str, float | None] = Field(default_factory=dict)
+    models_used: dict[str, bool] = Field(default_factory=dict)
+    capabilities: dict | None = None
+    removed_lines: dict[str, int] = Field(default_factory=dict)
+    overlays: dict | None = None  # only when return_debug_overlays=true
 
 
 class InspectResponse(BaseModel):
@@ -107,6 +115,11 @@ class InspectBase64Request(BaseModel):
     garment_type: str | None = None
     # Either a polygon {"points": [[x, y], ...]} (lasso) or a rect {x, y, w, h}.
     selected_region: dict | None = None
+    use_segmentation: bool = False
+    segmentation_provider: str | None = None
+    use_pose_advanced: bool = True
+    use_illustration_model: bool = True
+    return_debug_overlays: bool = False
     source: str = "external"  # "web" | "photoshop" | "external"
 
 
@@ -158,6 +171,10 @@ class ModelStatus(BaseModel):
     thresholds_loaded: bool
     thresholds_path: str
     available_garment_models: list[str] = Field(default_factory=list)
+    sam_available: bool = False
+    sam_checkpoint_present: bool = False
+    mediapipe_available: bool = False
+    illustration_feedback_model: dict = Field(default_factory=dict)
     version: str
 
 

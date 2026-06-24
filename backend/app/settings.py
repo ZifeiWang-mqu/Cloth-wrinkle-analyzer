@@ -63,6 +63,25 @@ class Settings(BaseSettings):
     # How much the learned anomaly model contributes to overall_score (0..1).
     anomaly_weight: float = 0.15
 
+    # --- Segmentation (SAM / OpenCV fallback) ---
+    # Whether auto-segmentation runs by default (per-request flag overrides).
+    enable_auto_segmentation: bool = False
+    segmentation_provider: str = "opencv"  # "none" | "sam" | "opencv"
+    sam_checkpoint_path: str = ""  # absolute or relative; empty -> data/models/sam/
+    sam_model_type: str = "vit_b"
+    segmentation_min_area_ratio: float = 0.02
+    segmentation_max_area_ratio: float = 0.85
+    # Drop lines whose midpoint is within this fraction of the diagonal of the
+    # mask boundary (likely garment outline, not a wrinkle). 0 disables.
+    mask_boundary_margin_ratio: float = 0.015
+
+    # --- Illustration feedback model ---
+    illustration_model_filename: str = "illustration_feedback_model.joblib"
+    illustration_metrics_filename: str = "illustration_feedback_model_metrics.json"
+    # Weight of the illustration model in the final score (only when ready).
+    illustration_model_weight: float = 0.25
+    min_feedback_train_samples: int = 30
+
     @property
     def upload_dir(self) -> Path:
         return self.data_dir / self.upload_subdir
@@ -82,6 +101,32 @@ class Settings(BaseSettings):
     @property
     def reference_stats_path(self) -> Path:
         return self.data_dir / "features" / "reference_stats.json"
+
+    @property
+    def sam_dir(self) -> Path:
+        return self.models_dir / "sam"
+
+    @property
+    def resolved_sam_checkpoint(self) -> Path | None:
+        """Resolve the SAM checkpoint path, or None if not configured/found."""
+        if self.sam_checkpoint_path:
+            p = Path(self.sam_checkpoint_path)
+            if not p.is_absolute():
+                p = REPO_DIR / p
+            return p
+        # Fall back to the first *.pth under data/models/sam/.
+        if self.sam_dir.exists():
+            for pth in sorted(self.sam_dir.glob("*.pth")):
+                return pth
+        return None
+
+    @property
+    def illustration_model_path(self) -> Path:
+        return self.models_dir / self.illustration_model_filename
+
+    @property
+    def illustration_metrics_path(self) -> Path:
+        return self.models_dir / self.illustration_metrics_filename
 
     @property
     def db_path(self) -> Path:

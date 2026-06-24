@@ -99,3 +99,43 @@ def test_missed_issue_feedback(client):
     # The feedback should come back in the inspection detail.
     detail = client.get(f"/api/inspection/{ins['inspection_id']}").json()
     assert any(f["feedback"] == "missed_issue" for f in detail["feedback"])
+
+
+# --- Improvement phase 4 (SAM / pose / illustration model) ------------------ #
+def test_model_status_has_capability_fields(client):
+    body = client.get("/api/model/status").json()
+    assert "sam_available" in body
+    assert "mediapipe_available" in body
+    assert "illustration_feedback_model" in body
+    assert "ready" in body["illustration_feedback_model"]
+
+
+def test_capabilities_endpoint(client):
+    r = client.get("/api/debug/capabilities")
+    assert r.status_code == 200, r.text
+    caps = r.json()
+    assert caps["segmentation"]["opencv_available"] is True
+    assert "mediapipe_available" in caps["pose"]
+
+
+def test_inspect_base64_with_segmentation(client):
+    data_url = "data:image/png;base64," + base64.b64encode(_png_bytes()).decode()
+    r = client.post(
+        "/api/inspect-base64",
+        json={
+            "image_base64": data_url,
+            "use_segmentation": True,
+            "return_debug_overlays": True,
+        },
+    )
+    assert r.status_code == 200, r.text
+    debug = r.json()["debug"]
+    assert debug["segmentation"] is not None
+    assert debug["segmentation"]["enabled"] is True
+    assert "final_score" in debug["model_scores"]
+
+
+def test_model_reload(client):
+    r = client.post("/api/model/reload")
+    assert r.status_code == 200
+    assert r.json()["status"] == "reloaded"

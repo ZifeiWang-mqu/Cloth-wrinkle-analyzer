@@ -68,7 +68,8 @@ class WrinkleCandidates:
     # Effective analysed area in px: polygon mask area when a lasso was used,
     # otherwise the crop area. Used for density normalisation.
     area_px: float = 0.0
-    mask: np.ndarray | None = None  # uint8 0/255 polygon mask (crop frame)
+    mask: np.ndarray | None = None  # uint8 0/255 combined mask (crop frame)
+    removed_lines: dict[str, int] = field(default_factory=dict)  # filter -> count
 
     @property
     def count(self) -> int:
@@ -99,12 +100,72 @@ def _auto_canny(gray: np.ndarray, sigma: float = 0.33) -> np.ndarray:
     return cv2.Canny(gray, lower, upper)
 
 
+def _combine_masks(
+    poly_mask: np.ndarray | None, seg_crop: np.ndarray | None
+) -> np.ndarray | None:
+    if poly_mask is not None and seg_crop is not None:
+        return cv2.bitwise_and(poly_mask, seg_crop)
+    return poly_mask if poly_mask is not None else seg_crop
+
+
+def _filter_lines(
+    lines: list[WrinkleLine],
+    mask: np.ndarray | None,
+    crop_shape: tuple[int, int],
+    settings,
+) -> tuple[list[WrinkleLine], dict[str, int]]:
+    """Drop lines that are likely NOT wrinkles (outline/edge/contour)."""
+    h, w = crop_shape
+    diag = math.hypot(h, w)
+    removed = {"outside_mask": 0, "near_boundary": 0, "touches_edge": 0, "too_long": 0}
+    if not lines:
+        return [], removed
+
+    dist = None
+    margin = 0.0
+    if mask is not None:
+        dist = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+        margin = float(getattr(settings, "mask_boundary_margin_ratio", 0.0) or 0.0) * diag
+    max_len = 0.9 * diag
+
+    kept: list[WrinkleLine] = []
+    for ln in lines:
+        mx, my = ln.midpoint
+        mxi = int(min(max(0, mx), w - 1))
+        myi = int(min(max(0, my), h - 1))
+        if mask is not None and mask[myi, mxi] == 0:
+            removed["outside_mask"] += 1
+            continue
+        if dist is not None and margin > 0 and dist[myi, mxi] < margin:
+            removed["near_boundary"] += 1
+            continue
+        if (
+            min(ln.x1, ln.x2) <= 1
+            or min(ln.y1, ln.y2) <= 1
+            or max(ln.x1, ln.x2) >= w - 2
+            or max(ln.y1, ln.y2) >= h - 2
+        ):
+            removed["touches_edge"] += 1
+            continue
+        if ln.length > max_len:
+            removed["too_long"] += 1
+            continue
+        kept.append(ln)
+    return kept, removed
+
+
 def extract_wrinkle_candidates(
-    image: np.ndarray, region: GarmentRegion
+    image: np.ndarray,
+    region: GarmentRegion,
+    seg_mask: np.ndarray | None = None,
+    settings=None,
 ) -> WrinkleCandidates:
     """Detect candidate wrinkle line segments inside ``region``.
 
-    Never raises on degenerate input — returns an empty candidate set instead.
+    ``seg_mask`` (full-image uint8) restricts analysis to a garment mask
+    (from SAM/OpenCV); it is intersected with any lasso polygon. Lines outside
+    the mask, near the mask boundary, touching the crop border, or implausibly
+    long are filtered out. Never raises — returns an empty set on failure.
     """
     try:
         crop = region.crop(image)
@@ -116,9 +177,14 @@ def extract_wrinkle_candidates(
 
         h, w = gray.shape[:2]
 
-        # Restrict to the lasso polygon (if any) so only lines inside the drawn
-        # shape are considered. Everything outside the mask is zeroed.
-        mask = region.crop_mask((h, w))
+        # Combined mask = lasso polygon AND segmentation mask (either may be None).
+        poly_mask = region.crop_mask((h, w))
+        seg_crop = None
+        if seg_mask is not None:
+            seg_crop = seg_mask[region.y : region.y + h, region.x : region.x + w]
+            if seg_crop.shape[:2] != (h, w):
+                seg_crop = cv2.resize(seg_crop, (w, h), interpolation=cv2.INTER_NEAREST)
+        mask = _combine_masks(poly_mask, seg_crop)
         if mask is not None:
             edges = cv2.bitwise_and(edges, edges, mask=mask)
 
@@ -147,6 +213,8 @@ def extract_wrinkle_candidates(
                 x1, y1, x2, y2 = (float(v) for v in seg)
                 lines.append(WrinkleLine(x1, y1, x2, y2))
 
+        lines, removed = _filter_lines(lines, mask, (h, w), settings)
+
         area_px = float(np.count_nonzero(mask)) if mask is not None else float(h * w)
         return WrinkleCandidates(
             lines=lines,
@@ -157,6 +225,7 @@ def extract_wrinkle_candidates(
             crop_shape=(h, w),
             area_px=area_px,
             mask=mask,
+            removed_lines=removed,
         )
 
     except Exception as exc:  # pragma: no cover - defensive

@@ -16,9 +16,22 @@ Pillow>=10.0
 
 # --- Pose estimation (OPTIONAL) ---
 # MediaPipe is heavy and platform-specific. The app runs without it
-# (pose_detected=false). Install manually if you want pose features:
+# (pose_detected=false; advanced joint rule falls back). Install for pose:
 #   pip install mediapipe
 # mediapipe>=0.10
+
+# --- Garment segmentation (OPTIONAL: SAM) ---
+# SAM enables automatic clothing segmentation. Without it, an OpenCV/bbox
+# fallback is used. Requires a checkpoint (NOT committed); see README.
+#   pip install segment-anything torch torchvision
+# segment-anything
+
+# --- Illustration feedback model (OPTIONAL) ---
+# Needed to TRAIN and to RUN the feedback-learned classifier. Without these,
+# the illustration model is reported unavailable and inference falls back.
+#   pip install scikit-learn joblib
+# scikit-learn>=1.3
+# joblib>=1.3
 
 # --- Dev / test ---
 pytest>=8.0

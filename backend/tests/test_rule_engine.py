@@ -116,7 +116,13 @@ def test_shadow_mismatch_needs_coherence():
 
 def test_integrate_scores_shape():
     payload = integrate_scores(_horizontal_mess(), "skirt", PoseResult(), REGION_CTX, settings)
-    assert set(payload.keys()) == {"issues", "overall_score", "result", "scores"}
+    assert {"issues", "overall_score", "result", "scores", "model_scores"} <= set(payload.keys())
+    assert set(payload["model_scores"].keys()) == {
+        "rule_score",
+        "anomaly_score",
+        "illustration_model_score",
+        "final_score",
+    }
     assert 0.0 <= payload["overall_score"] <= 1.0
     assert payload["result"] in {"ok", "needs_review"}
     # 6 rule scores + the learned anomaly_model score.

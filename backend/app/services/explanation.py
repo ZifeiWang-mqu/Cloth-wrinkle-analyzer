@@ -45,6 +45,12 @@ def generate_explanation(issue_type: str, score: float, features: Features) -> s
 
     if issue_type == "joint_inconsistency":
         joint = features.nearest_joint or "関節"
+        if features.joint_angle is not None:
+            return (
+                f"{joint}（約{features.joint_angle:.0f}度に屈曲）の圧縮側に皺が少なく、"
+                "伸び側との分布が皺の出方と{deg}矛盾している可能性があります。"
+                "曲げ内側（圧縮側）に皺が集まり、外側が滑らかになっているか確認してください。"
+            ).replace("{deg}", deg)
         return (
             f"{joint}付近に皺が{deg}不自然に分布しています。"
             "曲げた側（圧縮側）に皺が集まっているか、伸びる側に偏っていないか確認してください。"

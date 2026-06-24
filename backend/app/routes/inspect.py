@@ -50,6 +50,11 @@ async def inspect_wrinkle(
     image: UploadFile = File(...),
     garment_type: str | None = Form(None),
     selected_region: str | None = Form(None),
+    use_segmentation: bool = Form(False),
+    segmentation_provider: str | None = Form(None),
+    use_pose_advanced: bool = Form(True),
+    use_illustration_model: bool = Form(True),
+    return_debug_overlays: bool = Form(False),
     db: Session = Depends(get_db),
 ) -> InspectResponse:
     garment = _normalize_garment(garment_type)
@@ -69,6 +74,11 @@ async def inspect_wrinkle(
         saved_path=saved_path,
         image_filename=image.filename,
         source="web",
+        use_segmentation=use_segmentation,
+        segmentation_provider=segmentation_provider,
+        use_pose_advanced=use_pose_advanced,
+        use_illustration_model=use_illustration_model,
+        return_debug_overlays=return_debug_overlays,
     )
 
 
@@ -94,4 +104,9 @@ def inspect_base64(
         saved_path=saved_path,
         image_filename=f"base64{ext}",
         source=payload.source or "external",
+        use_segmentation=payload.use_segmentation,
+        segmentation_provider=payload.segmentation_provider,
+        use_pose_advanced=payload.use_pose_advanced,
+        use_illustration_model=payload.use_illustration_model,
+        return_debug_overlays=payload.return_debug_overlays,
     )

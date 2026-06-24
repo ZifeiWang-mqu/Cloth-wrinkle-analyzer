@@ -4,6 +4,7 @@ import type {
   FeedbackRequest,
   FeedbackResponse,
   GarmentType,
+  InspectOptions,
   InspectResponse,
   ModelStatus,
   RegionPolygon,
@@ -26,6 +27,7 @@ export async function inspectWrinkle(
   file: File,
   garmentType: GarmentType,
   region: RegionPolygon | null,
+  options?: Partial<InspectOptions>,
 ): Promise<InspectResponse> {
   const fd = new FormData();
   fd.append("image", file);
@@ -38,6 +40,16 @@ export async function inspectWrinkle(
       ),
     };
     fd.append("selected_region", JSON.stringify(payload));
+  }
+  if (options) {
+    if (options.use_segmentation !== undefined)
+      fd.append("use_segmentation", String(options.use_segmentation));
+    if (options.use_pose_advanced !== undefined)
+      fd.append("use_pose_advanced", String(options.use_pose_advanced));
+    if (options.use_illustration_model !== undefined)
+      fd.append("use_illustration_model", String(options.use_illustration_model));
+    if (options.return_debug_overlays !== undefined)
+      fd.append("return_debug_overlays", String(options.return_debug_overlays));
   }
 
   const res = await fetch(`${API_BASE}/api/inspect-wrinkle`, {

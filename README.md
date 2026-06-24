@@ -82,15 +82,7 @@
 
 ---
 
-## セットアップと起動
-
-> **依存のインストールは初回のみ**。`pip install -r requirements.txt` は
-> 初回または `requirements.txt` 変更時のみ、`npm install` は初回または
-> `package.json` 変更時のみ実行すれば十分です。普段は `uvicorn …` /
-> `npm run dev` だけで起動できます。バックエンドとフロントエンドは別ターミナルで
-> 同時に起動してください（例: タブを2つ）。
-
-### ローカル (Python 3.10+)
+### backend (Python 3.10+)
 
 ```bash
 cd backend
@@ -105,7 +97,7 @@ uvicorn app.main:app --reload --port 8000
 > MediaPipe を使ったポーズ推定を有効にしたい場合のみ `pip install mediapipe`
 > を追加してください。未インストールでもアプリは動作します。
 
-### フロントエンド (Next.js)
+### frontend (Next.js)
 
 ```bash
 cd frontend
@@ -347,6 +339,73 @@ python ml/evaluate_illustration_results.py \
 
 このフェーズで対応済み: base64 入力 API、`GET /api/model/status`、CORS の明示設定、
 ファイル/base64 で同一の結果形式。Plugin 本体は次フェーズです。
+
+---
+
+## 高度な機能（SAM / 関節高度化 / フィードバック学習）
+
+3つの機能は**すべて任意**で、依存が無くても落ちません（自動フォールバック）。
+検査オプションは UI のチェックボックス、または API パラメータで切り替えます。
+
+### A. SAM による服領域自動抽出
+
+- 目的: 服以外の線（髪・輪郭・背景・ハッチング）を皺候補から除外して誤検出を減らす。
+- 使い方: UI の「服領域自動抽出」をON、または `use_segmentation=true`。
+- 依存: `pip install segment-anything torch torchvision` ＋ チェックポイント。
+  - 既定の探索先: `data/models/sam/*.pth`（または `WRINKLE_SAM_CHECKPOINT_PATH`）。
+  - モデル種別: `WRINKLE_SAM_MODEL_TYPE`（既定 `vit_b`）。
+- **チェックポイントは GitHub に載せません**（`.gitignore` に `*.pth` 等）。
+- フォールバック: SAM が無い場合は OpenCV 幾何フォールバック（なげなわ→その多角形、
+  矩形→その範囲、無指定→全体）。マスク内だけ Canny/Hough を採用し、マスク外・境界付近・
+  画像/領域端に接する線・長すぎる輪郭線を除外します（`debug.removed_lines`）。
+- レスポンス: `debug.segmentation = { enabled, provider, mask_available, mask_area_ratio, fallback_used, reason }`。
+
+### B. MediaPipe による関節判定の高度化
+
+- pose が取れる場合、肘/膝/腰の **関節角度・曲げ強度・圧縮側/伸び側** を推定し、
+  「圧縮側に皺が少ない」「曲げをまたぐ長い直線」などを `joint_inconsistency` に反映します。
+- pose 信頼度が低い/未検出の場合は従来の軽量ルールにフォールバックし、confidence を下げます。
+- 依存: `pip install mediapipe`（無くても動作）。`use_pose_advanced` で切り替え。
+- レスポンス: `debug.pose = { detected, provider, joint_contexts:[{joint_name, angle_degrees, bend_strength, confidence}] }`。
+
+### C. 蓄積フィードバックからのイラスト専用モデル学習
+
+```bash
+# 1) DB と画像から学習データセットを作成
+python ml/build_illustration_feedback_dataset.py \
+  --db data/wrinkle.db --images-root data/illustrations_raw \
+  --output-root data/illustration_feedback_dataset
+# 2) 軽量分類器（scikit-learn）を学習
+python ml/train_illustration_feedback_model.py \
+  --features data/illustration_feedback_dataset/features.csv \
+  --output-model data/models/illustration_feedback_model.joblib
+# 3) バックエンドで再読み込み（または再起動）
+curl -X POST http://localhost:8000/api/model/reload
+```
+
+- ラベル変換: correct/missed_issue/wrong_location/wrong_reason → valid_issue、false_positive → false_issue。
+- サンプル不足（既定 `MIN_FEEDBACK_TRAIN_SAMPLES=30`、各クラス3件以上）では学習を中止し、
+  `model/status` で `ready=false` を返します。推論時は未学習なら自動でスキップ。
+- 依存: `pip install scikit-learn joblib`（無くても他機能は動作）。
+- スコアは分離して返します:
+  `debug.model_scores = { rule_score, anomaly_score, illustration_model_score, final_score }`、
+  `debug.models_used = { rule_engine, photo_anomaly_model, illustration_feedback_model }`。
+
+### 追加 API オプション
+
+`POST /api/inspect-wrinkle`（form）/ `POST /api/inspect-base64`（JSON）共通:
+`use_segmentation`, `segmentation_provider`, `use_pose_advanced`,
+`use_illustration_model`, `return_debug_overlays`。既定値は従来動作を維持します。
+
+- `GET /api/model/status`: SAM/MediaPipe 可用性、illustration model の状態（件数・metrics）を追加。
+- `GET /api/debug/capabilities`: 依存ライブラリの可用性。
+- `POST /api/model/reload`: thresholds / anomaly / reference_stats / illustration model を再読込。
+
+### Git 管理（追加）
+
+`.gitignore` に `models/`, `*.pth`, `*.pt`, `*.onnx`, `*.joblib`,
+`data/segmentation_cache/`, `reports/` を追加済み。SAM チェックポイント・学習済み
+モデル・入力画像・特徴量・feedback 実データは GitHub に載せません。
 
 ---
 

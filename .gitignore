@@ -92,3 +92,14 @@ frontend/out/
 
 # Local annotation data
 data/annotations/
+
+# Model checkpoints / weights (SAM, illustration model, etc.) — never commit
+models/
+*.pth
+*.pt
+*.onnx
+*.joblib
+data/segmentation_cache/
+
+# Generated reports
+reports/

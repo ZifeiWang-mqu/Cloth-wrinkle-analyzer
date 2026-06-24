@@ -52,6 +52,28 @@ export default function ResultPanel({
         </div>
       </div>
 
+      {/* Score breakdown (rule / anomaly / illustration / final) */}
+      {result.debug.model_scores && (
+        <div className="score-breakdown">
+          {(
+            [
+              ["rule_score", "ルール"],
+              ["anomaly_score", "写真異常"],
+              ["illustration_model_score", "専用モデル"],
+              ["final_score", "最終"],
+            ] as [string, string][]
+          ).map(([k, label]) => {
+            const v = result.debug.model_scores?.[k];
+            return (
+              <div className="sb-row" key={k}>
+                <span className="sb-label">{label}</span>
+                <span className="sb-val">{v == null ? "—" : v.toFixed(2)}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Selected issue detail */}
       {selected && (
         <div
@@ -110,6 +132,29 @@ export default function ResultPanel({
 
       <details className="debug">
         <summary>デバッグ情報</summary>
+        {result.debug.segmentation && (
+          <p className="hint" style={{ marginTop: 6 }}>
+            服領域抽出: {result.debug.segmentation.provider}
+            {result.debug.segmentation.fallback_used ? "（フォールバック）" : ""} ・ 面積比{" "}
+            {(result.debug.segmentation.mask_area_ratio * 100).toFixed(0)}%
+          </p>
+        )}
+        {result.debug.pose && (
+          <p className="hint">
+            姿勢: {result.debug.pose.detected ? result.debug.pose.provider : "未検出"}
+            {result.debug.pose.joint_contexts?.length
+              ? ` ・ 関節 ${result.debug.pose.joint_contexts
+                  .map((j) => `${j.joint_name}(${j.angle_degrees.toFixed(0)}°)`)
+                  .join(", ")}`
+              : ""}
+          </p>
+        )}
+        {result.debug.removed_lines &&
+          Object.values(result.debug.removed_lines).some((v) => v > 0) && (
+            <p className="hint">
+              除外した線: {JSON.stringify(result.debug.removed_lines)}
+            </p>
+          )}
         <div className="scorebars" style={{ marginTop: 8 }}>
           {scoreEntries.map(([type, score]) => (
             <div className="bar-row" key={type}>

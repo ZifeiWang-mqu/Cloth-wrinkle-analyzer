@@ -17,7 +17,11 @@ from dataclasses import asdict, dataclass, field
 import cv2
 import numpy as np
 
-from app.services.pose import PoseResult
+from app.services.pose import (
+    PoseResult,
+    classify_side_of_joint,
+    get_joint_contexts,
+)
 from app.services.wrinkle_edges import WrinkleCandidates, WrinkleLine
 
 # Image convention: +y points DOWN, so gravity is the vertical axis (90 deg).
@@ -61,6 +65,16 @@ class Features:
     pose_detected: bool = False
     nearest_joint: str | None = None
     nearest_joint_dist_norm: float | None = None  # dist / region diag
+
+    # Advanced joint features (set only when pose + a bent joint are available)
+    joint_angle: float | None = None
+    nearest_joint_angle: float | None = None
+    joint_bend_strength: float = 0.0
+    compression_side_density: float = 0.0  # line length on compression side / area
+    stretch_side_density: float = 0.0
+    density_ratio_comp_to_stretch: float = 0.0
+    lines_crossing_joint_count: int = 0
+    pose_confidence: float = 0.0
 
     notes: list[str] = field(default_factory=list)
 
@@ -235,9 +249,62 @@ def _nearest_joint(
 # --------------------------------------------------------------------------- #
 # Main entry point
 # --------------------------------------------------------------------------- #
+def _joint_features(
+    feats: Features,
+    lines: list[WrinkleLine],
+    pose: PoseResult,
+    image_shape: tuple[int, int],
+    region_center: tuple[float, float],
+    offset: tuple[int, int],
+    diag: float,
+) -> None:
+    """Populate compression/stretch joint features using MediaPipe geometry."""
+    contexts = get_joint_contexts(pose, image_shape)
+    if not contexts:
+        return
+    # Nearest joint to the region centre.
+    ctx = min(
+        contexts,
+        key=lambda c: math.hypot(c.joint[0] - region_center[0], c.joint[1] - region_center[1]),
+    )
+    feats.pose_confidence = ctx.confidence
+    feats.nearest_joint = ctx.joint_name
+    feats.nearest_joint_angle = ctx.angle_degrees
+    # Only do compression/stretch analysis when the joint is actually bent.
+    if ctx.bend_strength < 0.2:
+        return
+    feats.joint_angle = ctx.angle_degrees
+    feats.joint_bend_strength = ctx.bend_strength
+
+    ox, oy = offset
+    comp_len = 0.0
+    stretch_len = 0.0
+    crossing = 0
+    for ln in lines:
+        mx, my = ln.midpoint
+        side = classify_side_of_joint((mx + ox, my + oy), ctx)
+        if side == "compression":
+            comp_len += ln.length
+        elif side == "stretch":
+            stretch_len += ln.length
+        s1 = classify_side_of_joint((ln.x1 + ox, ln.y1 + oy), ctx)
+        s2 = classify_side_of_joint((ln.x2 + ox, ln.y2 + oy), ctx)
+        if s1 != s2 and "neutral" not in (s1, s2) and ln.length > 0.3 * diag:
+            crossing += 1
+
+    area = feats.area_px if feats.area_px > 0 else 1.0
+    feats.compression_side_density = comp_len / area * 10000.0
+    feats.stretch_side_density = stretch_len / area * 10000.0
+    feats.density_ratio_comp_to_stretch = feats.compression_side_density / (
+        feats.stretch_side_density + 1e-6
+    )
+    feats.lines_crossing_joint_count = crossing
+
+
 def extract_features(
     candidates: WrinkleCandidates,
     pose: PoseResult | None = None,
+    image_shape: tuple[int, int] | None = None,
 ) -> Features:
     """Compute structural features from detected wrinkle candidates."""
     pose = pose or PoseResult()
@@ -309,5 +376,12 @@ def extract_features(
     name, dist = _nearest_joint(region_center, pose, diag)
     feats.nearest_joint = name
     feats.nearest_joint_dist_norm = dist
+
+    # Advanced joint geometry (compression vs stretch), when pose is available.
+    if pose.detected and image_shape is not None:
+        try:
+            _joint_features(feats, lines, pose, image_shape, region_center, (ox, oy), diag)
+        except Exception:  # pragma: no cover - never break feature extraction
+            pass
 
     return feats

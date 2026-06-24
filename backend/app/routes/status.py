@@ -21,6 +21,7 @@ from app.schemas import (
     ModelStatus,
     StoredFeedback,
 )
+from app.services import capabilities, illustration_model
 from app.services.anomaly_model import describe_anomaly_model
 from app.services.reference_stats import load_density_stats
 from app.services.thresholds import load_thresholds
@@ -34,6 +35,7 @@ def model_status() -> ModelStatus:
     desc = describe_anomaly_model()
     th = load_thresholds(settings.thresholds_path)
     _, rs_loaded = load_density_stats(settings.reference_stats_path)
+    caps = capabilities.get_capabilities(settings)
     return ModelStatus(
         model_loaded=bool(desc["loaded"]),
         model_type=str(desc["type"]),
@@ -43,8 +45,33 @@ def model_status() -> ModelStatus:
         thresholds_loaded=th.loaded,
         thresholds_path=str(settings.thresholds_path),
         available_garment_models=list(desc["garments"]),
+        sam_available=bool(caps["segmentation"]["sam_available"]),
+        sam_checkpoint_present=bool(caps["segmentation"]["sam_checkpoint_present"]),
+        mediapipe_available=bool(caps["pose"]["mediapipe_available"]),
+        illustration_feedback_model=illustration_model.describe(),
         version=__version__,
     )
+
+
+@router.get("/debug/capabilities", tags=["status"])
+def debug_capabilities() -> dict:
+    """Which optional features are available in this environment."""
+    return capabilities.get_capabilities(settings)
+
+
+@router.post("/model/reload", tags=["status"])
+def model_reload() -> dict:
+    """Hot-reload thresholds / anomaly model / reference stats / illustration model."""
+    from app.services.anomaly_model import reset_anomaly_model_cache
+    from app.services.illustration_model import reset_cache as reset_illu
+    from app.services.reference_stats import reset_cache as reset_refstats
+    from app.services.thresholds import reset_cache as reset_thresholds
+
+    reset_anomaly_model_cache()
+    reset_thresholds()
+    reset_refstats()
+    reset_illu()
+    return {"status": "reloaded"}
 
 
 @router.get("/inspection/{inspection_id}", response_model=InspectionDetail)

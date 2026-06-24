@@ -3,8 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
-import type { BBox, Issue, RegionPolygon } from "@/lib/types";
+import type { BBox, Issue, Overlays, RegionPolygon } from "@/lib/types";
 import HeatmapOverlay from "./HeatmapOverlay";
+
+// Pose skeleton bone connections (landmark name pairs).
+const BONES: [string, string][] = [
+  ["left_shoulder", "right_shoulder"],
+  ["left_shoulder", "left_elbow"],
+  ["left_elbow", "left_wrist"],
+  ["right_shoulder", "right_elbow"],
+  ["right_elbow", "right_wrist"],
+  ["left_hip", "right_hip"],
+  ["left_shoulder", "left_hip"],
+  ["right_shoulder", "right_hip"],
+  ["left_hip", "left_knee"],
+  ["left_knee", "left_ankle"],
+  ["right_hip", "right_knee"],
+  ["right_knee", "right_ankle"],
+];
 
 type DrawMode = "region" | "issue" | "off";
 type Pt = { x: number; y: number };
@@ -19,6 +35,10 @@ interface Props {
   onRegionChange: (region: RegionPolygon | null) => void;
   onIssueBoxChange: (box: BBox | null) => void;
   onSelectIssue: (id: string | null) => void;
+  overlays?: Overlays | null;
+  showMask?: boolean;
+  showPose?: boolean;
+  showLines?: boolean;
 }
 
 interface Rect {
@@ -53,6 +73,10 @@ export default function RegionSelector({
   onRegionChange,
   onIssueBoxChange,
   onSelectIssue,
+  overlays,
+  showMask,
+  showPose,
+  showLines,
 }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
@@ -222,6 +246,65 @@ export default function RegionSelector({
         >
           <span className="tag">追加する見逃し</span>
         </div>
+      )}
+
+      {/* Debug overlays (segmentation mask, pose skeleton, candidate lines) */}
+      {showMask && overlays?.mask_png && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={overlays.mask_png}
+          alt="服マスク"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            width: display.w,
+            height: display.h,
+            opacity: 0.3,
+            pointerEvents: "none",
+            mixBlendMode: "screen",
+          }}
+        />
+      )}
+      {(showPose || showLines) && (
+        <svg
+          width={display.w}
+          height={display.h}
+          style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}
+        >
+          {showLines &&
+            overlays?.candidate_lines?.map((l, i) => (
+              <line
+                key={`cl-${i}`}
+                x1={l[0] * scale}
+                y1={l[1] * scale}
+                x2={l[2] * scale}
+                y2={l[3] * scale}
+                stroke="#36c08a"
+                strokeWidth={1}
+                opacity={0.7}
+              />
+            ))}
+          {showPose &&
+            overlays?.pose_landmarks &&
+            BONES.map(([a, b], i) => {
+              const pa = overlays.pose_landmarks?.[a];
+              const pb = overlays.pose_landmarks?.[b];
+              if (!pa || !pb) return null;
+              return (
+                <line
+                  key={`bone-${i}`}
+                  x1={pa[0] * scale}
+                  y1={pa[1] * scale}
+                  x2={pb[0] * scale}
+                  y2={pb[1] * scale}
+                  stroke="#ff4d4f"
+                  strokeWidth={2}
+                  opacity={0.85}
+                />
+              );
+            })}
+        </svg>
       )}
 
       <HeatmapOverlay

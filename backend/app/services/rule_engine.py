@@ -93,26 +93,66 @@ def score_gravity_inconsistency(
 # --------------------------------------------------------------------------- #
 # 8.2 Joint
 # --------------------------------------------------------------------------- #
-def score_joint_inconsistency(
-    features: Features, pose_landmarks: PoseResult, region_context: dict
+def _score_joint_basic(
+    features: Features, dist: float
 ) -> ScoreResult:
-    if not pose_landmarks.detected or features.nearest_joint is None:
-        return ScoreResult(0.0, 0.0, detail="no_pose")
-
-    dist = features.nearest_joint_dist_norm or 1.0
-    if dist > 0.3:
-        return ScoreResult(0.0, 0.2, detail="region_not_near_joint")
-
-    # Near a joint we EXPECT compression wrinkles. Too few -> suspicious.
-    # Also penalise wrinkles running straight through (low dispersion) at a bend.
-    sparse = _smoothstep(1.0, 0.2, features.line_count_density)  # high when sparse
+    """Lightweight fallback (no bend geometry): sparse / straight-through."""
+    sparse = _smoothstep(1.0, 0.2, features.line_count_density)
     straight_through = _smoothstep(0.5, 0.1, features.orientation_dispersion)
     score = _clamp01(max(0.5 * sparse, 0.6 * straight_through))
     confidence = _clamp01(0.4 + 0.4 * (1.0 - dist))
     return ScoreResult(
         score=score,
         confidence=confidence,
-        detail=f"joint={features.nearest_joint},dist={dist:.2f}",
+        detail=f"basic joint={features.nearest_joint},dist={dist:.2f}",
+    )
+
+
+def score_joint_inconsistency(
+    features: Features, pose_landmarks: PoseResult, region_context: dict
+) -> ScoreResult:
+    """Advanced joint rule using bend direction (compression vs stretch).
+
+    Falls back to the lightweight heuristic when pose / bend geometry is
+    unavailable, and scales confidence by pose confidence.
+    """
+    if not pose_landmarks.detected or features.nearest_joint is None:
+        return ScoreResult(0.0, 0.0, detail="no_pose")
+
+    dist = features.nearest_joint_dist_norm or 1.0
+    if dist > 0.35:
+        return ScoreResult(0.0, 0.2, detail="region_not_near_joint")
+
+    # Advanced path requires a bent joint with computed side densities.
+    if features.joint_angle is None or features.joint_bend_strength < 0.2:
+        return _score_joint_basic(features, dist)
+
+    comp = features.compression_side_density
+    stretch = features.stretch_side_density
+    ratio = features.density_ratio_comp_to_stretch  # comp / stretch
+
+    # Natural: compression (inner) side is DENSER than stretch (outer) side.
+    # Anomalies: (a) compression side too sparse vs stretch (ratio << 1),
+    #            (b) almost no wrinkles on the compression side at a real bend,
+    #            (c) long straight lines crossing the bend.
+    inverted = _smoothstep(1.0, 0.4, ratio) if (comp + stretch) > 0 else 0.0
+    missing_compression = _smoothstep(1.0, 0.1, comp)  # high when comp ~ 0
+    crossing = _smoothstep(1.0, 4.0, float(features.lines_crossing_joint_count))
+
+    raw = max(0.6 * inverted, 0.5 * missing_compression, 0.5 * crossing)
+    # Scale by how strongly the joint is bent and how confident the pose is.
+    score = _clamp01(raw * (0.5 + 0.5 * features.joint_bend_strength))
+    confidence = _clamp01(
+        (0.3 + 0.5 * features.pose_confidence) * (0.6 + 0.4 * (1.0 - dist))
+    )
+    return ScoreResult(
+        score=score,
+        confidence=confidence,
+        detail=(
+            f"adv joint={features.nearest_joint},angle={features.joint_angle:.0f},"
+            f"ratio={ratio:.2f},cross={features.lines_crossing_joint_count}"
+        ),
+        extra={"advanced": True},
     )
 
 
@@ -292,6 +332,7 @@ def integrate_scores(
     reference_stats: dict | None = None,
     anomaly_score: float = 0.0,
     thresholds=None,
+    illustration_score: float | None = None,
 ) -> dict:
     """Combine per-requirement scores into the inspection result payload.
 
@@ -355,14 +396,32 @@ def integrate_scores(
     anomaly = _clamp01(anomaly_score)
     w = _clamp01(getattr(settings, "anomaly_weight", 0.15))
     rule_overall = 0.6 * max_s + 0.4 * mean_s
-    overall = round(_clamp01((1.0 - w) * rule_overall + w * anomaly), 4)
+    base = (1.0 - w) * rule_overall + w * anomaly
+
+    # Blend the illustration-feedback model only when a score is supplied.
+    if illustration_score is not None:
+        w2 = _clamp01(getattr(settings, "illustration_model_weight", 0.25))
+        final = (1.0 - w2) * base + w2 * _clamp01(illustration_score)
+    else:
+        final = base
+    overall = round(_clamp01(final), 4)
 
     scores["anomaly_model"] = round(anomaly, 4)
     result = "needs_review" if (any_flagged or overall >= settings.review_threshold) else "ok"
+
+    model_scores = {
+        "rule_score": round(_clamp01(rule_overall), 4),
+        "anomaly_score": round(anomaly, 4),
+        "illustration_model_score": (
+            round(_clamp01(illustration_score), 4) if illustration_score is not None else None
+        ),
+        "final_score": overall,
+    }
 
     return {
         "issues": issues,
         "overall_score": overall,
         "result": result,
         "scores": scores,
+        "model_scores": model_scores,
     }

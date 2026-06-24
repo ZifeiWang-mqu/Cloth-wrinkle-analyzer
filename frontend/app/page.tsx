@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import ImageUploader from "@/components/ImageUploader";
+import InspectionOptions from "@/components/InspectionOptions";
 import IssueControls, {
   type SeverityFilter,
   type SortBy,
@@ -16,6 +17,7 @@ import {
   type FeedbackKind,
   GARMENT_OPTIONS,
   type GarmentType,
+  type InspectOptions,
   type InspectResponse,
   type IssueType,
   type ModelStatus,
@@ -48,6 +50,16 @@ export default function Home() {
 
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
+  const [options, setOptions] = useState<InspectOptions>({
+    use_segmentation: false,
+    use_pose_advanced: true,
+    use_illustration_model: true,
+    return_debug_overlays: false,
+  });
+  const [showMask, setShowMask] = useState(true);
+  const [showPose, setShowPose] = useState(true);
+  const [showLines, setShowLines] = useState(false);
+
   useEffect(() => {
     getModelStatus()
       .then(setModelStatus)
@@ -78,7 +90,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      const res = await inspectWrinkle(file, garmentType, region);
+      const res = await inspectWrinkle(file, garmentType, region, options);
       setResult(res);
       setSelectedIssueId(null);
       setRegionEditMode(false);
@@ -100,6 +112,12 @@ export default function Home() {
     setDraftIssueBox(null);
     setAddMode(false);
     setRegionEditMode(true);
+  }
+
+  function toggleOverlay(which: "mask" | "pose" | "lines") {
+    if (which === "mask") setShowMask((v) => !v);
+    else if (which === "pose") setShowPose((v) => !v);
+    else setShowLines((v) => !v);
   }
 
   function toggleType(t: IssueType) {
@@ -208,6 +226,19 @@ export default function Home() {
             ))}
           </select>
 
+          <label className="field">検査オプション</label>
+          <InspectionOptions
+            options={options}
+            onChange={setOptions}
+            status={modelStatus}
+            hasOverlays={!!result?.debug.overlays}
+            showMask={showMask}
+            showPose={showPose}
+            showLines={showLines}
+            onToggleOverlay={toggleOverlay}
+            disabled={loading}
+          />
+
           {file && (
             <div className="region-tools">
               <button
@@ -290,6 +321,10 @@ export default function Home() {
               onRegionChange={setRegion}
               onIssueBoxChange={setDraftIssueBox}
               onSelectIssue={setSelectedIssueId}
+              overlays={result?.debug.overlays}
+              showMask={showMask}
+              showPose={showPose}
+              showLines={showLines}
             />
           ) : (
             <div className="empty">ここに画像が表示されます。</div>

@@ -567,6 +567,52 @@ input[type="range"] {
   margin-left: 6px;
 }
 
+/* Inspection options */
+.opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 6px 0;
+  cursor: pointer;
+}
+.opt input {
+  width: auto;
+}
+.overlay-toggles {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* Score breakdown */
+.score-breakdown {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin: 10px 0 14px;
+}
+.score-breakdown .sb-row {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 4px;
+  text-align: center;
+}
+.score-breakdown .sb-label {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+}
+.score-breakdown .sb-val {
+  display: block;
+  font-size: 18px;
+  font-weight: 700;
+}
+
 /* Missed issue form */
 .missed-form .row {
   display: flex;

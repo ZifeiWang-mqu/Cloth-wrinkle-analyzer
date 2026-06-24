@@ -43,6 +43,12 @@ export interface Issue {
   flagged: boolean; // バックエンド判定で検出扱いか
 }
 
+export interface Overlays {
+  candidate_lines?: number[][]; // [x1,y1,x2,y2] full-image coords
+  pose_landmarks?: Record<string, [number, number]>;
+  mask_png?: string; // data URL
+}
+
 export interface DebugInfo {
   pose_detected: boolean;
   garment_region_used: boolean;
@@ -50,6 +56,38 @@ export interface DebugInfo {
   processing_time_ms: number;
   scores: Record<string, number>;
   notes: string[];
+  segmentation?: {
+    enabled: boolean;
+    provider: string;
+    mask_available: boolean;
+    mask_area_ratio: number;
+    fallback_used: boolean;
+    reason: string | null;
+  } | null;
+  pose?: {
+    detected: boolean;
+    provider: string;
+    advanced?: boolean;
+    joint_contexts?: {
+      joint_name: string;
+      joint_type: string;
+      angle_degrees: number;
+      bend_strength: number;
+      confidence: number;
+    }[];
+  } | null;
+  model_scores?: Record<string, number | null>;
+  models_used?: Record<string, boolean>;
+  capabilities?: Record<string, unknown> | null;
+  removed_lines?: Record<string, number>;
+  overlays?: Overlays | null;
+}
+
+export interface InspectOptions {
+  use_segmentation: boolean;
+  use_pose_advanced: boolean;
+  use_illustration_model: boolean;
+  return_debug_overlays: boolean;
 }
 
 export interface InspectResponse {
@@ -97,6 +135,17 @@ export interface ModelStatus {
   thresholds_loaded: boolean;
   thresholds_path: string;
   available_garment_models: string[];
+  sam_available: boolean;
+  sam_checkpoint_present: boolean;
+  mediapipe_available: boolean;
+  illustration_feedback_model: {
+    loaded: boolean;
+    ready: boolean;
+    training_samples: number;
+    positive_samples: number;
+    negative_samples: number;
+    metrics?: { precision?: number; recall?: number; f1?: number };
+  };
   version: string;
 }
 
