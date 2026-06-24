@@ -46,10 +46,16 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     )
+    # Allow any origin (for Photoshop UXP / external tools). Disables credentials.
+    cors_allow_all: bool = False
 
     # --- Scoring thresholds ---
-    # A requirement becomes an "issue" once its score crosses issue_threshold.
+    # A requirement becomes an "issue" once its score crosses issue_threshold
+    # (fallback when thresholds.json is not loaded).
     issue_threshold: float = 0.45
+    # Issues with score >= min_report_score are returned to the client (even if
+    # below the judgment threshold) so the UI display slider can reveal them.
+    min_report_score: float = 0.30
     # overall_score above review_threshold -> result == "needs_review".
     review_threshold: float = 0.4
     severity_medium: float = 0.55
@@ -68,6 +74,14 @@ class Settings(BaseSettings):
     @property
     def model_path(self) -> Path:
         return self.models_dir / self.anomaly_model_filename
+
+    @property
+    def thresholds_path(self) -> Path:
+        return BACKEND_DIR / "app" / "config" / "thresholds.json"
+
+    @property
+    def reference_stats_path(self) -> Path:
+        return self.data_dir / "features" / "reference_stats.json"
 
     @property
     def db_path(self) -> Path:

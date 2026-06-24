@@ -3,11 +3,13 @@
 import {
   type FeedbackKind,
   type InspectResponse,
+  ISSUE_COLORS,
+  type Issue,
+  SEVERITY_LABELS,
   TYPE_LABELS,
 } from "@/lib/types";
 import FeedbackButtons from "./FeedbackButtons";
 
-// Includes the non-issue "anomaly_model" key that appears in debug.scores.
 const SCORE_LABELS: Record<string, string> = {
   ...TYPE_LABELS,
   anomaly_model: "異常スコア（学習モデル）",
@@ -15,6 +17,9 @@ const SCORE_LABELS: Record<string, string> = {
 
 interface Props {
   result: InspectResponse;
+  issues: Issue[]; // filtered + sorted (visible)
+  selectedIssueId: string | null;
+  onSelectIssue: (id: string | null) => void;
   onFeedback: (
     issueId: string | null,
     kind: FeedbackKind,
@@ -22,21 +27,16 @@ interface Props {
   ) => Promise<void>;
 }
 
-const SEV_CLASS: Record<string, string> = {
-  high: "sev-high",
-  medium: "sev-medium",
-  low: "sev-low",
-};
-
-const SEV_LABEL: Record<string, string> = {
-  high: "高",
-  medium: "中",
-  low: "低",
-};
-
-export default function ResultPanel({ result, onFeedback }: Props) {
+export default function ResultPanel({
+  result,
+  issues,
+  selectedIssueId,
+  onSelectIssue,
+  onFeedback,
+}: Props) {
   const review = result.result === "needs_review";
   const scoreEntries = Object.entries(result.debug.scores);
+  const selected = result.issues.find((i) => i.id === selectedIssueId) || null;
 
   return (
     <div className="panel">
@@ -46,36 +46,67 @@ export default function ResultPanel({ result, onFeedback }: Props) {
         <span className="score-pill">{result.overall_score.toFixed(2)}</span>
         <div>
           <span className={`badge ${review ? "review" : "ok"}`}>
-            {review ? "要確認" : "問題なし"}
+            {review ? "要確認の可能性あり" : "目立つ問題なし"}
           </span>
           <div className="hint">総合スコア（1.0 に近いほど要確認）</div>
         </div>
       </div>
 
-      {result.issues.length === 0 ? (
-        <p className="hint">閾値を超える不整合は検出されませんでした。</p>
-      ) : (
-        result.issues.map((issue) => (
-          <div
-            key={issue.id}
-            className={`issue-card ${SEV_CLASS[issue.severity] ?? "sev-low"}`}
-          >
-            <div className="row">
-              <span className="label">{issue.label}</span>
-              <span className="meta">
-                重大度 {SEV_LABEL[issue.severity] ?? issue.severity} ・ 信頼度{" "}
-                {(issue.confidence * 100).toFixed(0)}%
-              </span>
-            </div>
-            <p className="message">{issue.message}</p>
-            <FeedbackButtons issueId={issue.id} onSubmit={onFeedback} />
+      {/* Selected issue detail */}
+      {selected && (
+        <div
+          className="selected-issue"
+          style={{ borderColor: ISSUE_COLORS[selected.type] }}
+        >
+          <div className="row">
+            <span className="label" style={{ color: ISSUE_COLORS[selected.type] }}>
+              {selected.label}
+            </span>
+            <button type="button" className="chip" onClick={() => onSelectIssue(null)}>
+              閉じる
+            </button>
           </div>
-        ))
+          <div className="meta">
+            重大度 {SEVERITY_LABELS[selected.severity]} ・ 信頼度{" "}
+            {(selected.confidence * 100).toFixed(0)}% ・ スコア{" "}
+            {selected.score.toFixed(2)}（閾値 {selected.threshold.toFixed(2)}）
+            {selected.flagged ? "" : " ・ 参考"}
+          </div>
+          <p className="message">{selected.message}</p>
+          <FeedbackButtons issueId={selected.id} onSubmit={onFeedback} />
+        </div>
       )}
 
-      <h3 style={{ marginTop: 18, fontSize: 14 }}>見逃しの報告</h3>
-      <p className="hint">検出されなかった不整合があればこちらから報告できます。</p>
-      <FeedbackButtons issueId={null} onSubmit={onFeedback} />
+      {/* Issue list */}
+      {issues.length === 0 ? (
+        <p className="hint">表示条件に合う検出はありません（閾値やフィルタを調整してください）。</p>
+      ) : (
+        <div className="issue-list">
+          {issues.map((issue) => {
+            const color = ISSUE_COLORS[issue.type];
+            const active = issue.id === selectedIssueId;
+            return (
+              <button
+                key={issue.id}
+                type="button"
+                className={`issue-row${active ? " active" : ""}`}
+                style={{ borderLeftColor: color }}
+                onClick={() => onSelectIssue(issue.id)}
+              >
+                <span className="issue-row-main">
+                  <span className="dot" style={{ background: color }} />
+                  <span className="label">{issue.label}</span>
+                  {!issue.flagged && <span className="ref-tag">参考</span>}
+                </span>
+                <span className="meta">
+                  {SEVERITY_LABELS[issue.severity]} ・{" "}
+                  {(issue.confidence * 100).toFixed(0)}%
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <details className="debug">
         <summary>デバッグ情報</summary>
@@ -84,10 +115,7 @@ export default function ResultPanel({ result, onFeedback }: Props) {
             <div className="bar-row" key={type}>
               <span className="bar-name">{SCORE_LABELS[type] ?? type}</span>
               <span className="bar-track">
-                <span
-                  className="bar-fill"
-                  style={{ width: `${Math.round(score * 100)}%` }}
-                />
+                <span className="bar-fill" style={{ width: `${Math.round(score * 100)}%` }} />
               </span>
               <span className="bar-val">{score.toFixed(2)}</span>
             </div>

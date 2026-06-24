@@ -1,18 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import ImageUploader from "@/components/ImageUploader";
+import IssueControls, {
+  type SeverityFilter,
+  type SortBy,
+} from "@/components/IssueControls";
+import MissedIssueForm from "@/components/MissedIssueForm";
 import RegionSelector from "@/components/RegionSelector";
 import ResultPanel from "@/components/ResultPanel";
-import { inspectWrinkle, sendFeedback } from "@/lib/api";
+import { getModelStatus, inspectWrinkle, sendFeedback } from "@/lib/api";
 import {
   type BBox,
   type FeedbackKind,
   GARMENT_OPTIONS,
   type GarmentType,
   type InspectResponse,
+  type IssueType,
+  type ModelStatus,
+  TYPE_LABELS,
 } from "@/lib/types";
+
+const ALL_TYPES = Object.keys(TYPE_LABELS) as IssueType[];
 
 export default function Home() {
   const [file, setFile] = useState<File | null>(null);
@@ -23,7 +33,26 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Clean up the object URL when it changes / unmounts.
+  const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
+  const [visibleTypes, setVisibleTypes] = useState<Set<IssueType>>(
+    new Set(ALL_TYPES),
+  );
+  const [severityFilter, setSeverityFilter] = useState<SeverityFilter>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("score");
+  const [displayThreshold, setDisplayThreshold] = useState(0.4);
+
+  const [regionEditMode, setRegionEditMode] = useState(true);
+  const [addMode, setAddMode] = useState(false);
+  const [draftIssueBox, setDraftIssueBox] = useState<BBox | null>(null);
+
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+
+  useEffect(() => {
+    getModelStatus()
+      .then(setModelStatus)
+      .catch(() => setModelStatus(null));
+  }, []);
+
   useEffect(() => {
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -37,6 +66,10 @@ export default function Home() {
     setRegion(null);
     setResult(null);
     setError(null);
+    setSelectedIssueId(null);
+    setDraftIssueBox(null);
+    setAddMode(false);
+    setRegionEditMode(true);
   }
 
   async function handleInspect() {
@@ -46,6 +79,8 @@ export default function Home() {
     try {
       const res = await inspectWrinkle(file, garmentType, region);
       setResult(res);
+      setSelectedIssueId(null);
+      setRegionEditMode(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "検査に失敗しました。");
     } finally {
@@ -60,21 +95,77 @@ export default function Home() {
     setRegion(null);
     setResult(null);
     setError(null);
+    setSelectedIssueId(null);
+    setDraftIssueBox(null);
+    setAddMode(false);
+    setRegionEditMode(true);
   }
 
-  async function handleFeedback(
+  function toggleType(t: IssueType) {
+    setVisibleTypes((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  }
+
+  async function handleIssueFeedback(
     issueId: string | null,
     kind: FeedbackKind,
     comment: string,
   ) {
     if (!result) return;
+    const issue = result.issues.find((i) => i.id === issueId) || null;
     await sendFeedback({
       inspection_id: result.inspection_id,
       issue_id: issueId,
       feedback: kind,
+      image_id: file?.name ?? null,
+      garment_type: garmentType,
+      issue_type: issue?.type ?? null,
+      original_bbox: issue?.bbox ?? null,
+      confidence: issue?.confidence ?? null,
+      severity: issue?.severity ?? null,
+      source: "web",
       comment: comment || null,
     });
   }
+
+  async function handleMissedSubmit(issueType: IssueType, comment: string) {
+    if (!result || !draftIssueBox) return;
+    await sendFeedback({
+      inspection_id: result.inspection_id,
+      feedback: "missed_issue",
+      image_id: file?.name ?? null,
+      garment_type: garmentType,
+      issue_type: issueType,
+      corrected_bbox: draftIssueBox,
+      source: "web",
+      comment: comment || null,
+    });
+    setDraftIssueBox(null);
+  }
+
+  const drawMode: "region" | "issue" | "off" = addMode
+    ? "issue"
+    : regionEditMode
+      ? "region"
+      : "off";
+
+  const filteredIssues = useMemo(() => {
+    if (!result) return [];
+    const arr = result.issues.filter(
+      (i) =>
+        visibleTypes.has(i.type) &&
+        i.score >= displayThreshold &&
+        (severityFilter === "all" || i.severity === severityFilter),
+    );
+    arr.sort((a, b) =>
+      sortBy === "score" ? b.score - a.score : b.confidence - a.confidence,
+    );
+    return arr;
+  }, [result, visibleTypes, displayThreshold, severityFilter, sortBy]);
 
   return (
     <main className="app">
@@ -82,9 +173,16 @@ export default function Home() {
         <div>
           <h1>イラスト皺チェッカー</h1>
           <div className="subtitle">
-            衣服の皺が重力・関節・張力・立体・密度・陰影と整合しているか検査します。
+            衣服の皺が重力・関節・張力・立体・密度・陰影と整合しているか検査します（結果は可能性の提示です）。
           </div>
         </div>
+        {modelStatus && (
+          <div className="model-status" title={modelStatus.model_path}>
+            モデル: {modelStatus.model_loaded ? modelStatus.model_type : "簡易(未学習)"} ・ 閾値
+            {modelStatus.thresholds_loaded ? "✓" : "×"} ・ 参照統計
+            {modelStatus.reference_stats_loaded ? "✓" : "×"}
+          </div>
+        )}
       </header>
 
       <div className="layout">
@@ -109,31 +207,31 @@ export default function Home() {
             ))}
           </select>
 
-          <p className="hint" style={{ marginTop: 12 }}>
-            {file
-              ? "プレビュー上でドラッグして服領域を選択できます（任意）。"
-              : "画像を選択すると服領域を指定できます。"}
-          </p>
-          {region && (
-            <p className="hint">
-              選択領域: x{Math.round(region.x)} y{Math.round(region.y)} ・{" "}
-              {Math.round(region.w)}×{Math.round(region.h)}px{" "}
+          {file && (
+            <div className="region-tools">
               <button
                 type="button"
-                className="chip"
-                onClick={() => setRegion(null)}
+                className={`btn small ${regionEditMode ? "" : "secondary"}`}
+                onClick={() => {
+                  setRegionEditMode((v) => !v);
+                  setAddMode(false);
+                }}
               >
-                クリア
+                {regionEditMode ? "服領域: 選択中" : "服領域を選び直す"}
               </button>
-            </p>
+              {region && (
+                <span className="hint">
+                  {Math.round(region.w)}×{Math.round(region.h)}px{" "}
+                  <button type="button" className="chip" onClick={() => setRegion(null)}>
+                    クリア
+                  </button>
+                </span>
+              )}
+            </div>
           )}
 
           <div style={{ marginTop: 14, display: "grid", gap: 8 }}>
-            <button
-              className="btn"
-              onClick={handleInspect}
-              disabled={!file || loading}
-            >
+            <button className="btn" onClick={handleInspect} disabled={!file || loading}>
               {loading ? "検査中…" : result ? "再検査する" : "検査する"}
             </button>
             <button
@@ -146,33 +244,79 @@ export default function Home() {
           </div>
 
           {error && <div className="error">{error}</div>}
+
+          {result && (
+            <>
+              <hr className="sep" />
+              <h2>2. 表示フィルタ</h2>
+              <IssueControls
+                allTypes={ALL_TYPES}
+                visibleTypes={visibleTypes}
+                onToggleType={toggleType}
+                severityFilter={severityFilter}
+                onSeverityChange={setSeverityFilter}
+                sortBy={sortBy}
+                onSortChange={setSortBy}
+                displayThreshold={displayThreshold}
+                onThresholdChange={setDisplayThreshold}
+              />
+              <hr className="sep" />
+              <MissedIssueForm
+                addMode={addMode}
+                draftBox={draftIssueBox}
+                onToggleAddMode={() => {
+                  setAddMode((v) => !v);
+                  setRegionEditMode(false);
+                }}
+                onSubmit={handleMissedSubmit}
+                onClearDraft={() => setDraftIssueBox(null)}
+              />
+            </>
+          )}
         </section>
 
         {/* --- Image stage --- */}
         <section className="panel">
-          <h2>2. プレビュー / 検出</h2>
+          <h2>プレビュー / 検出</h2>
           {previewUrl ? (
             <RegionSelector
               imageUrl={previewUrl}
+              drawMode={loading ? "off" : drawMode}
               region={region}
-              issues={result?.issues ?? []}
-              interactive={!loading}
+              draftIssueBox={draftIssueBox}
+              issues={filteredIssues}
+              selectedIssueId={selectedIssueId}
               onRegionChange={setRegion}
+              onIssueBoxChange={setDraftIssueBox}
+              onSelectIssue={setSelectedIssueId}
             />
           ) : (
             <div className="empty">ここに画像が表示されます。</div>
+          )}
+          {previewUrl && (
+            <p className="hint" style={{ marginTop: 8 }}>
+              {addMode
+                ? "ドラッグで見逃し範囲を指定 → 左の「見逃しとして送信」"
+                : regionEditMode
+                  ? "ドラッグで服領域を選択（任意）。"
+                  : "検出枠をクリックすると詳細が右に表示されます。"}
+            </p>
           )}
         </section>
 
         {/* --- Result --- */}
         {result ? (
-          <ResultPanel result={result} onFeedback={handleFeedback} />
+          <ResultPanel
+            result={result}
+            issues={filteredIssues}
+            selectedIssueId={selectedIssueId}
+            onSelectIssue={setSelectedIssueId}
+            onFeedback={handleIssueFeedback}
+          />
         ) : (
           <section className="panel">
-            <h2>3. 検査結果</h2>
-            <div className="empty">
-              検査するとここに結果と問題箇所が表示されます。
-            </div>
+            <h2>検査結果</h2>
+            <div className="empty">検査するとここに結果と問題箇所が表示されます。</div>
           </section>
         )}
       </div>

@@ -33,6 +33,9 @@ export interface Issue {
   bbox: BBox;
   confidence: number;
   message: string; // 日本語説明文
+  score: number; // 生スコア 0..1
+  threshold: number; // 判定に使われた閾値
+  flagged: boolean; // バックエンド判定で検出扱いか
 }
 
 export interface DebugInfo {
@@ -63,8 +66,15 @@ export interface FeedbackRequest {
   inspection_id: string;
   issue_id?: string | null;
   feedback: FeedbackKind;
+  image_id?: string | null;
+  garment_type?: string | null;
+  issue_type?: string | null;
+  original_bbox?: BBox | null;
   corrected_bbox?: BBox | null;
   corrected_type?: string | null;
+  confidence?: number | null;
+  severity?: string | null;
+  source?: string | null;
   comment?: string | null;
 }
 
@@ -72,6 +82,28 @@ export interface FeedbackResponse {
   status: string;
   feedback_id: string;
 }
+
+export interface ModelStatus {
+  model_loaded: boolean;
+  model_type: string;
+  model_path: string;
+  reference_stats_loaded: boolean;
+  reference_stats_path: string;
+  thresholds_loaded: boolean;
+  thresholds_path: string;
+  available_garment_models: string[];
+  version: string;
+}
+
+// issue_type ごとの色（要件 §6）
+export const ISSUE_COLORS: Record<IssueType, string> = {
+  gravity_inconsistency: "#4f8cff", // blue
+  joint_inconsistency: "#ff4d4f", // red
+  tension_ambiguity: "#ff9f43", // orange
+  body_volume_inconsistency: "#a66bff", // purple
+  density_inconsistency: "#36c08a", // green
+  shadow_wrinkle_mismatch: "#9aa3b2", // gray
+};
 
 export const GARMENT_OPTIONS: { value: GarmentType; label: string }[] = [
   { value: "unknown", label: "不明 / 自動" },
@@ -98,3 +130,17 @@ export const FEEDBACK_OPTIONS: { value: FeedbackKind; label: string }[] = [
   { value: "wrong_reason", label: "理由が違う" },
   { value: "missed_issue", label: "見逃しあり" },
 ];
+
+// Per-issue feedback (missed_issue is handled separately by the add-issue form).
+export const ISSUE_FEEDBACK_OPTIONS: { value: FeedbackKind; label: string }[] = [
+  { value: "correct", label: "正しい" },
+  { value: "false_positive", label: "誤検出" },
+  { value: "wrong_location", label: "位置が違う" },
+  { value: "wrong_reason", label: "理由が違う" },
+];
+
+export const SEVERITY_LABELS: Record<Severity, string> = {
+  high: "高",
+  medium: "中",
+  low: "低",
+};

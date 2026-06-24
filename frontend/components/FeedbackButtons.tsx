@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 
-import { FEEDBACK_OPTIONS, type FeedbackKind } from "@/lib/types";
+import { ISSUE_FEEDBACK_OPTIONS, type FeedbackKind } from "@/lib/types";
 
 interface Props {
   issueId: string | null;
+  options?: { value: FeedbackKind; label: string }[];
   onSubmit: (
     issueId: string | null,
     kind: FeedbackKind,
@@ -13,7 +14,8 @@ interface Props {
   ) => Promise<void>;
 }
 
-export default function FeedbackButtons({ issueId, onSubmit }: Props) {
+export default function FeedbackButtons({ issueId, options, onSubmit }: Props) {
+  const opts = options ?? ISSUE_FEEDBACK_OPTIONS;
   const [kind, setKind] = useState<FeedbackKind | null>(null);
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
@@ -37,7 +39,7 @@ export default function FeedbackButtons({ issueId, onSubmit }: Props) {
   return (
     <div>
       <div className="feedback">
-        {FEEDBACK_OPTIONS.map((opt) => (
+        {opts.map((opt) => (
           <button
             key={opt.value}
             type="button"

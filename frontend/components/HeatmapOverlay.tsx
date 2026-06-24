@@ -2,43 +2,59 @@
 
 import type { CSSProperties } from "react";
 
-import type { Issue } from "@/lib/types";
+import { ISSUE_COLORS, type Issue } from "@/lib/types";
 
 interface Props {
-  issues: Issue[];
+  issues: Issue[]; // already filtered to what's visible
   scale: number; // displayed px per natural px
+  selectedId: string | null;
+  onSelect: (id: string) => void;
 }
 
-const SEV_CLASS: Record<string, string> = {
-  high: "sev-high",
-  medium: "sev-medium",
-  low: "sev-low",
-};
-
 /**
- * Draws detected issue bounding boxes over the image. Boxes are positioned in
- * the natural image frame and scaled to the displayed size, so they stay
- * aligned regardless of how the image is resized in the layout.
+ * Draws issue bounding boxes over the image, colored by issue_type. Boxes are
+ * clickable (select) and the selected one is emphasised. Unflagged issues
+ * (below the backend judgment threshold) are drawn dashed.
  */
-export default function HeatmapOverlay({ issues, scale }: Props) {
+export default function HeatmapOverlay({
+  issues,
+  scale,
+  selectedId,
+  onSelect,
+}: Props) {
   return (
     <>
       {issues.map((issue) => {
         const { x, y, w, h } = issue.bbox;
+        const color = ISSUE_COLORS[issue.type] ?? "#9aa3b2";
+        const selected = issue.id === selectedId;
         const style: CSSProperties = {
           left: x * scale,
           top: y * scale,
           width: w * scale,
           height: h * scale,
+          borderColor: color,
+          borderStyle: issue.flagged ? "solid" : "dashed",
+          borderWidth: selected ? 3 : 2,
+          background: selected ? `${color}26` : "transparent",
+          boxShadow: selected ? `0 0 0 2px ${color}66` : "none",
+          zIndex: selected ? 5 : 2,
         };
         return (
           <div
             key={issue.id}
-            className={`issue-box ${SEV_CLASS[issue.severity] ?? "sev-low"}`}
+            className="issue-box"
             style={style}
             title={`${issue.label}（信頼度 ${(issue.confidence * 100).toFixed(0)}%）\n${issue.message}`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect(issue.id);
+            }}
           >
-            <span className="tag">{issue.label}</span>
+            <span className="tag" style={{ background: color }}>
+              {issue.label}
+            </span>
           </div>
         );
       })}

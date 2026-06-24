@@ -291,43 +291,59 @@ def integrate_scores(
     settings,
     reference_stats: dict | None = None,
     anomaly_score: float = 0.0,
+    thresholds=None,
 ) -> dict:
     """Combine per-requirement scores into the inspection result payload.
 
-    ``anomaly_score`` (0..1) from the learned model contributes a configurable
-    weight (``settings.anomaly_weight``) to ``overall_score`` and is reported in
-    ``scores`` under the ``anomaly_model`` key, but does not itself create one of
-    the six rule-typed issues.
+    ``thresholds`` (optional :class:`Thresholds`) supplies per-issue-type /
+    per-garment judgment thresholds; without it ``settings.issue_threshold`` is
+    used. Issues with score >= ``settings.min_report_score`` are returned (each
+    annotated with ``score``, ``threshold`` and ``flagged``) so the frontend can
+    re-filter independently. ``anomaly_score`` (0..1) blends into
+    ``overall_score`` via ``settings.anomaly_weight``.
 
-    Returns a dict with keys: ``issues`` (list of dicts), ``overall_score``,
-    ``result`` ("ok"|"needs_review"), and ``scores`` (type -> score).
+    Returns: ``issues``, ``overall_score``, ``result``, ``scores``.
     """
     results = run_all_scores(features, garment_type, pose, region_context, reference_stats)
     region_bbox = _region_bbox(region_context)
+    floor = float(getattr(settings, "min_report_score", settings.issue_threshold))
+
+    def _effective(issue_type_value: str) -> float:
+        if thresholds is not None and getattr(thresholds, "loaded", False):
+            return float(thresholds.effective(issue_type_value, garment_type))
+        return float(settings.issue_threshold)
 
     issues: list[dict] = []
     scores: dict[str, float] = {}
+    any_flagged = False
     for idx, issue_type in enumerate(_SCORERS):
         res = results[issue_type]
         scores[issue_type.value] = round(res.score, 4)
-        if res.score >= settings.issue_threshold:
-            bbox = res.bbox or region_bbox
-            issues.append(
-                {
-                    "id": f"{issue_type.value}-{idx}",
-                    "type": issue_type.value,
-                    "label": label_for(issue_type.value),
-                    "severity": _severity(res.score, settings).value,
-                    "bbox": {
-                        "x": float(bbox["x"]),
-                        "y": float(bbox["y"]),
-                        "w": float(bbox["w"]),
-                        "h": float(bbox["h"]),
-                    },
-                    "confidence": round(_clamp01(res.confidence), 4),
-                    "message": generate_explanation(issue_type.value, res.score, features),
-                }
-            )
+        if res.score < floor:
+            continue
+        eff = _effective(issue_type.value)
+        flagged = res.score >= eff
+        any_flagged = any_flagged or flagged
+        bbox = res.bbox or region_bbox
+        issues.append(
+            {
+                "id": f"{issue_type.value}-{idx}",
+                "type": issue_type.value,
+                "label": label_for(issue_type.value),
+                "severity": _severity(res.score, settings).value,
+                "bbox": {
+                    "x": float(bbox["x"]),
+                    "y": float(bbox["y"]),
+                    "w": float(bbox["w"]),
+                    "h": float(bbox["h"]),
+                },
+                "confidence": round(_clamp01(res.confidence), 4),
+                "message": generate_explanation(issue_type.value, res.score, features),
+                "score": round(res.score, 4),
+                "threshold": round(eff, 4),
+                "flagged": flagged,
+            }
+        )
 
     # Aggregate the six rule scores, then blend in the learned anomaly signal.
     if scores:
@@ -342,7 +358,7 @@ def integrate_scores(
     overall = round(_clamp01((1.0 - w) * rule_overall + w * anomaly), 4)
 
     scores["anomaly_model"] = round(anomaly, 4)
-    result = "needs_review" if (issues or overall >= settings.review_threshold) else "ok"
+    result = "needs_review" if (any_flagged or overall >= settings.review_threshold) else "ok"
 
     return {
         "issues": issues,

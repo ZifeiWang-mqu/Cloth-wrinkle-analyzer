@@ -176,3 +176,14 @@ def reset_anomaly_model_cache() -> None:
     """Clear the cached model (useful after retraining or in tests)."""
     global _MODEL
     _MODEL = None
+
+
+def describe_anomaly_model() -> dict:
+    """Summary for the /api/model/status endpoint."""
+    m = get_anomaly_model()
+    if isinstance(m, MahalanobisAnomalyModel):
+        garments = sorted(
+            ("global" if g == GLOBAL_KEY else g) for g in m.fits.keys()
+        )
+        return {"loaded": True, "type": m.name, "garments": garments}
+    return {"loaded": False, "type": m.name, "garments": []}

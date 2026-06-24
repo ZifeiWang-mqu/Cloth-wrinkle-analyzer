@@ -1,40 +1,70 @@
+# ============================================================
 # Python
-backend/.venv/
+# ============================================================
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.dataset_venv/
+backend/.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
 
-# Node / Next.js
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-
-# Environment files
+# Env / secrets
 .env
-.env.*
-frontend/.env.local
-backend/.env
+*.env.local
 
-# Local data / uploads / database
-backend/uploads/
-backend/*.db
-backend/*.sqlite
-backend/*.sqlite3
-data/
-reports/
+# SQLite DB
+*.db
 
+# ============================================================
+# Local data — NEVER commit user images, datasets, models, or
+# generated features/outputs to GitHub. (.gitkeep keeps the
+# empty folder skeleton so the app still finds the paths.)
+# ============================================================
+data/illustrations_raw/*
+!data/illustrations_raw/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+data/outputs/*
+!data/outputs/.gitkeep
+data/photos_raw/*
+!data/photos_raw/.gitkeep
+data/photos_masks/*
+!data/photos_masks/.gitkeep
+data/features/*
+!data/features/.gitkeep
+data/models/*
+!data/models/.gitkeep
+
+# Top-level generated data files
+data/*.json
+data/*.csv
+data/*.parquet
+
+# External assets / third-party datasets (Open Images, DeepFashion2, etc.)
+external/
+
+# ============================================================
+# Node / Next.js (frontend)
+# ============================================================
+node_modules/
+frontend/node_modules/
+.next/
+frontend/.next/
+
+# ============================================================
 # OS / editor
+# ============================================================
 .DS_Store
+.idea/
 .vscode/
 
-# Dataset / external image data
-data/
-external/
-.dataset_venv/
-
-# User input illustrations / private image data
+# Local datasets / private inputs
 data/illustrations_raw/
-data/outputs/
 data/uploads/
+data/outputs/
 data/photos_raw/
 data/photos_masks/
 data/features/
@@ -42,5 +72,20 @@ data/models/
 data/*.json
 data/*.csv
 data/*.parquet
+
+# External datasets / local envs
 external/
 .dataset_venv/
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# OS
+.DS_Store

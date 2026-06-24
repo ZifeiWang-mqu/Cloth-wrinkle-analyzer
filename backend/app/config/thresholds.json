@@ -1,0 +1,19 @@
+{
+  "global": 0.75,
+  "issue_type": {
+    "gravity_inconsistency": 0.70,
+    "joint_inconsistency": 0.65,
+    "tension_ambiguity": 0.75,
+    "body_volume_inconsistency": 0.75,
+    "density_inconsistency": 0.80,
+    "shadow_wrinkle_mismatch": 0.85
+  },
+  "garment_type": {
+    "shirt": 0.70,
+    "skirt": 0.75,
+    "pants": 0.75,
+    "dress": 0.75,
+    "jacket": 0.75,
+    "unknown": 0.85
+  }
+}

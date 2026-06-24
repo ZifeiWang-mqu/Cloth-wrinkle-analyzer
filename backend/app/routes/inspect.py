@@ -1,25 +1,23 @@
-"""POST /api/inspect-wrinkle — the main inspection endpoint."""
+"""Inspection endpoints.
+
+POST /api/inspect-wrinkle   — multipart file upload (web UI)
+POST /api/inspect-base64    — base64 / data URL (Photoshop & external tools)
+
+Both share :func:`app.services.inspection_service.run_inspection`.
+"""
 
 from __future__ import annotations
 
 import json
 import logging
-import math
-import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import Inspection
-from app.schemas import DebugInfo, GarmentType, InspectResponse
+from app.schemas import GarmentType, InspectBase64Request, InspectResponse
 from app.services import image_io
-from app.services.anomaly_model import get_anomaly_model
-from app.services.feature_extraction import extract_features
-from app.services.pose import estimate_pose
-from app.services.rule_engine import integrate_scores
-from app.services.segmentation import get_garment_region
-from app.services.wrinkle_edges import extract_wrinkle_candidates
+from app.services.inspection_service import run_inspection
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -54,7 +52,6 @@ async def inspect_wrinkle(
     selected_region: str | None = Form(None),
     db: Session = Depends(get_db),
 ) -> InspectResponse:
-    t0 = time.perf_counter()
     garment = _normalize_garment(garment_type)
     region_dict = _parse_region(selected_region)
 
@@ -64,81 +61,39 @@ async def inspect_wrinkle(
     except image_io.UploadError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    notes: list[str] = []
-    issues: list[dict] = []
-    overall = 0.0
-    result_str = "ok"
-    scores: dict[str, float] = {}
-    num_candidates = 0
-    pose_detected = False
-    region_used = False
+    return run_inspection(
+        image_bgr=img,
+        garment=garment,
+        region_dict=region_dict,
+        db=db,
+        saved_path=saved_path,
+        image_filename=image.filename,
+        source="web",
+    )
 
-    # The pipeline is wrapped so processing failures still return a 200 with
-    # debug info (requirement 14: never crash on image-processing errors).
+
+@router.post("/inspect-base64", response_model=InspectResponse)
+def inspect_base64(
+    payload: InspectBase64Request, db: Session = Depends(get_db)
+) -> InspectResponse:
+    """Inspect a base64-encoded image (same result shape as the upload route)."""
+    garment = _normalize_garment(payload.garment_type)
+    region_dict = (
+        payload.selected_region.model_dump() if payload.selected_region else None
+    )
     try:
-        region = get_garment_region(img, region_dict)
-        region_used = region.used_selection
-        pose = estimate_pose(img)
-        pose_detected = pose.detected
+        raw, ext = image_io.decode_base64(payload.image_base64)
+        img = image_io.decode_image(raw)  # validate before persisting
+        saved_path = image_io.persist_bytes(raw, settings, ext)
+    except image_io.UploadError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-        candidates = extract_wrinkle_candidates(img, region)
-        num_candidates = candidates.count
-
-        features = extract_features(candidates, pose)
-
-        # Learned anomaly model (trained Mahalanobis model if available, else
-        # a heuristic fallback). Contributes to overall_score via settings.
-        anomaly_score = get_anomaly_model().score(features, garment)
-
-        ih, iw = img.shape[:2]
-        region_context = {
-            "bbox": region.as_dict(),
-            "image_w": iw,
-            "image_h": ih,
-            "region_diag": math.hypot(region.w, region.h),
-        }
-        payload = integrate_scores(
-            features, garment, pose, region_context, settings, anomaly_score=anomaly_score
-        )
-        issues = payload["issues"]
-        overall = payload["overall_score"]
-        result_str = payload["result"]
-        scores = payload["scores"]
-        if not pose.detected:
-            notes.append("pose_not_detected: 関節系の判定は低信頼度です。")
-    except Exception as exc:  # pragma: no cover - defensive top-level guard
-        logger.exception("Inspection pipeline failed")
-        notes.append(f"pipeline_error: {exc}")
-
-    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    debug = DebugInfo(
-        pose_detected=pose_detected,
-        garment_region_used=region_used,
-        num_wrinkle_candidates=num_candidates,
-        processing_time_ms=elapsed_ms,
-        scores=scores,
-        notes=notes,
-    )
-
-    # Persist inspection history.
-    row = Inspection(
-        image_path=str(saved_path),
-        image_filename=image.filename or saved_path.name,
-        garment_type=garment,
-        selected_region_json=json.dumps(region_dict) if region_dict else None,
-        overall_score=overall,
-        result=result_str,
-        issues_json=json.dumps(issues, ensure_ascii=False),
-        debug_json=json.dumps(debug.model_dump(), ensure_ascii=False),
-    )
-    db.add(row)
-    db.commit()
-    db.refresh(row)
-
-    return InspectResponse(
-        inspection_id=row.id,
-        result=result_str,
-        overall_score=overall,
-        issues=issues,
-        debug=debug,
+    return run_inspection(
+        image_bgr=img,
+        garment=garment,
+        region_dict=region_dict,
+        db=db,
+        saved_path=saved_path,
+        image_filename=f"base64{ext}",
+        source=payload.source or "external",
     )

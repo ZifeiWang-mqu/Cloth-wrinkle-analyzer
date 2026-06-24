@@ -6,6 +6,7 @@ import type {
   FeedbackResponse,
   GarmentType,
   InspectResponse,
+  ModelStatus,
 } from "./types";
 
 export const API_BASE =
@@ -58,4 +59,10 @@ export async function sendFeedback(
   });
   if (!res.ok) throw new Error(await parseError(res));
   return (await res.json()) as FeedbackResponse;
+}
+
+export async function getModelStatus(): Promise<ModelStatus> {
+  const res = await fetch(`${API_BASE}/api/model/status`);
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as ModelStatus;
 }

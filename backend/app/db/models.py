@@ -53,8 +53,16 @@ class IssueFeedback(Base):
     )
     issue_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     feedback: Mapped[str] = mapped_column(String(32))
+    # Rich context captured for building an illustration-specific dataset.
+    image_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    garment_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    issue_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    original_bbox_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     corrected_bbox_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     corrected_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    severity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow, server_default=func.now())
 

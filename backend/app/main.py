@@ -5,8 +5,11 @@ Run locally:
 
 Endpoints:
     GET  /health
-    POST /api/inspect-wrinkle
+    POST /api/inspect-wrinkle      (multipart upload)
+    POST /api/inspect-base64       (base64 / external tools)
     POST /api/feedback
+    GET  /api/model/status
+    GET  /api/inspection/{id}
 Uploaded images are served read-only under /uploads for the frontend overlay.
 """
 
@@ -23,6 +26,7 @@ from app import __version__
 from app.db.database import init_db
 from app.routes import feedback as feedback_routes
 from app.routes import inspect as inspect_routes
+from app.routes import status as status_routes
 from app.settings import settings
 
 logging.basicConfig(level=logging.INFO)
@@ -35,13 +39,25 @@ def create_app() -> FastAPI:
         description="イラストの衣服の皺の不整合を検出する作画支援API（MVP）",
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=list(settings.cors_origins),
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # CORS: explicit origins by default (web UI). Set WRINKLE_CORS_ALLOW_ALL=true
+    # to allow any origin — useful for Photoshop UXP / external tools that send
+    # requests from non-browser or unpredictable origins.
+    if settings.cors_allow_all:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=False,  # browsers forbid "*" with credentials
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+    else:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(settings.cors_origins),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
 
     # Ensure storage dirs exist, then serve uploaded images so the frontend
     # can draw overlays on them.
@@ -69,6 +85,7 @@ def create_app() -> FastAPI:
 
     app.include_router(inspect_routes.router)
     app.include_router(feedback_routes.router)
+    app.include_router(status_routes.router)
     return app
 
 

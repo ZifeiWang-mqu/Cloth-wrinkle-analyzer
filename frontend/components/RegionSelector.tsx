@@ -6,12 +6,18 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import type { BBox, Issue } from "@/lib/types";
 import HeatmapOverlay from "./HeatmapOverlay";
 
+type DrawMode = "region" | "issue" | "off";
+
 interface Props {
   imageUrl: string;
+  drawMode: DrawMode;
   region: BBox | null; // natural-image coords
-  issues: Issue[];
-  interactive: boolean;
+  draftIssueBox: BBox | null; // natural-image coords (manual missed issue)
+  issues: Issue[]; // visible issues to overlay
+  selectedIssueId: string | null;
   onRegionChange: (region: BBox | null) => void;
+  onIssueBoxChange: (box: BBox | null) => void;
+  onSelectIssue: (id: string | null) => void;
 }
 
 interface Rect {
@@ -22,17 +28,20 @@ interface Rect {
 }
 
 /**
- * Displays the uploaded image and lets the user drag a rectangle to select the
- * garment region. Selection is captured in displayed pixels and converted to
- * the natural image frame before being reported upward. Detected issue boxes
- * are overlaid via HeatmapOverlay using the same scale.
+ * Image stage. A drag draws either the garment region or a missed-issue box
+ * (per `drawMode`), captured in displayed px and converted to the natural
+ * image frame. Detected issues are overlaid (clickable) at the same scale.
  */
 export default function RegionSelector({
   imageUrl,
+  drawMode,
   region,
+  draftIssueBox,
   issues,
-  interactive,
+  selectedIssueId,
   onRegionChange,
+  onIssueBoxChange,
+  onSelectIssue,
 }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
@@ -45,9 +54,7 @@ export default function RegionSelector({
     const img = imgRef.current;
     if (!img) return;
     setDisplay({ w: img.clientWidth, h: img.clientHeight });
-    if (img.naturalWidth) {
-      setNatural({ w: img.naturalWidth, h: img.naturalHeight });
-    }
+    if (img.naturalWidth) setNatural({ w: img.naturalWidth, h: img.naturalHeight });
   }, []);
 
   useEffect(() => {
@@ -72,7 +79,10 @@ export default function RegionSelector({
   }
 
   function onPointerDown(e: ReactPointerEvent) {
-    if (!interactive) return;
+    if (drawMode === "off") {
+      onSelectIssue(null); // click empty area to deselect
+      return;
+    }
     (e.target as Element).setPointerCapture?.(e.pointerId);
     dragging.current = true;
     const p = localPoint(e);
@@ -96,34 +106,32 @@ export default function RegionSelector({
     if (!dragging.current) return;
     dragging.current = false;
     const r = dragRect;
+    const mode = drawMode;
     start.current = null;
+    setDragRect(null);
     if (!r || r.w < 5 || r.h < 5 || scale === 0) {
-      setDragRect(null);
-      onRegionChange(null);
+      if (mode === "region") onRegionChange(null);
       return;
     }
-    // Convert displayed px -> natural image px, then let the committed region
-    // (rendered as region * scale) drive the box so it stays resize-safe.
-    onRegionChange({
+    const natbox: BBox = {
       x: r.x / scale,
       y: r.y / scale,
       w: r.w / scale,
       h: r.h / scale,
-    });
-    setDragRect(null);
+    };
+    if (mode === "region") onRegionChange(natbox);
+    else if (mode === "issue") onIssueBoxChange(natbox);
   }
 
-  // The box to render: live drag, else the committed region (natural->display).
-  const shownBox: Rect | null = dragRect
-    ? dragRect
-    : region
-      ? {
-          x: region.x * scale,
-          y: region.y * scale,
-          w: region.w * scale,
-          h: region.h * scale,
-        }
-      : null;
+  const toDisplay = (b: BBox): Rect => ({
+    x: b.x * scale,
+    y: b.y * scale,
+    w: b.w * scale,
+    h: b.h * scale,
+  });
+
+  const regionBox = dragRect && drawMode === "region" ? dragRect : region ? toDisplay(region) : null;
+  const issueDraft = dragRect && drawMode === "issue" ? dragRect : draftIssueBox ? toDisplay(draftIssueBox) : null;
 
   return (
     <div
@@ -131,24 +139,33 @@ export default function RegionSelector({
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
-      style={{ cursor: interactive ? "crosshair" : "default" }}
+      style={{ cursor: drawMode === "off" ? "default" : "crosshair" }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img ref={imgRef} src={imageUrl} alt="検査対象" onLoad={measure} draggable={false} />
 
-      {shownBox && (
+      {regionBox && (
         <div
           className="selection-box"
-          style={{
-            left: shownBox.x,
-            top: shownBox.y,
-            width: shownBox.w,
-            height: shownBox.h,
-          }}
+          style={{ left: regionBox.x, top: regionBox.y, width: regionBox.w, height: regionBox.h }}
         />
       )}
 
-      <HeatmapOverlay issues={issues} scale={scale} />
+      {issueDraft && (
+        <div
+          className="draft-issue-box"
+          style={{ left: issueDraft.x, top: issueDraft.y, width: issueDraft.w, height: issueDraft.h }}
+        >
+          <span className="tag">追加する見逃し</span>
+        </div>
+      )}
+
+      <HeatmapOverlay
+        issues={issues}
+        scale={scale}
+        selectedId={selectedIssueId}
+        onSelect={onSelectIssue}
+      />
     </div>
   );
 }

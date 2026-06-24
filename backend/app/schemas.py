@@ -73,6 +73,12 @@ class Issue(BaseModel):
     bbox: BBox
     confidence: float = Field(..., ge=0.0, le=1.0)
     message: str  # 日本語の説明文
+    # Raw rule score (0..1), the effective threshold applied, and whether the
+    # score crossed it. The frontend can re-filter on `score` independently of
+    # the backend judgment (`flagged`).
+    score: float = Field(0.0, ge=0.0, le=1.0)
+    threshold: float = Field(0.0, ge=0.0, le=1.0)
+    flagged: bool = True
 
 
 class DebugInfo(BaseModel):
@@ -94,14 +100,32 @@ class InspectResponse(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Inspection input (base64 / external tools)
+# --------------------------------------------------------------------------- #
+class InspectBase64Request(BaseModel):
+    image_base64: str  # raw base64 or a data URL ("data:image/png;base64,...")
+    garment_type: str | None = None
+    selected_region: BBox | None = None
+    source: str = "external"  # "web" | "photoshop" | "external"
+
+
+# --------------------------------------------------------------------------- #
 # Feedback
 # --------------------------------------------------------------------------- #
 class FeedbackRequest(BaseModel):
     inspection_id: str
     issue_id: str | None = None
     feedback: FeedbackKind
+    # Rich context (all optional) so feedback can later seed a training set.
+    image_id: str | None = None
+    garment_type: str | None = None
+    issue_type: str | None = None
+    original_bbox: BBox | None = None
     corrected_bbox: BBox | None = None
     corrected_type: str | None = None
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    severity: str | None = None
+    source: str | None = None
     comment: str | None = None
 
     @field_validator("comment")
@@ -116,3 +140,46 @@ class FeedbackRequest(BaseModel):
 class FeedbackResponse(BaseModel):
     status: str = "saved"
     feedback_id: str
+
+
+# --------------------------------------------------------------------------- #
+# Model status / inspection detail (external tools)
+# --------------------------------------------------------------------------- #
+class ModelStatus(BaseModel):
+    # Allow field names starting with "model_" (reserved by Pydantic v2).
+    model_config = {"protected_namespaces": ()}
+
+    model_loaded: bool
+    model_type: str
+    model_path: str
+    reference_stats_loaded: bool
+    reference_stats_path: str
+    thresholds_loaded: bool
+    thresholds_path: str
+    available_garment_models: list[str] = Field(default_factory=list)
+    version: str
+
+
+class StoredFeedback(BaseModel):
+    id: str
+    issue_id: str | None = None
+    feedback: str
+    image_id: str | None = None
+    garment_type: str | None = None
+    issue_type: str | None = None
+    corrected_type: str | None = None
+    comment: str | None = None
+    created_at: str | None = None
+
+
+class InspectionDetail(BaseModel):
+    inspection_id: str
+    image_path: str
+    image_filename: str
+    garment_type: str
+    result: str
+    overall_score: float
+    issues: list[Issue] = Field(default_factory=list)
+    debug: DebugInfo | None = None
+    feedback: list[StoredFeedback] = Field(default_factory=list)
+    created_at: str | None = None
