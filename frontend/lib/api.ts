@@ -1,12 +1,12 @@
 // Thin client for the FastAPI backend.
 
 import type {
-  BBox,
   FeedbackRequest,
   FeedbackResponse,
   GarmentType,
   InspectResponse,
   ModelStatus,
+  RegionPolygon,
 } from "./types";
 
 export const API_BASE =
@@ -25,20 +25,19 @@ async function parseError(res: Response): Promise<string> {
 export async function inspectWrinkle(
   file: File,
   garmentType: GarmentType,
-  region: BBox | null,
+  region: RegionPolygon | null,
 ): Promise<InspectResponse> {
   const fd = new FormData();
   fd.append("image", file);
   fd.append("garment_type", garmentType);
-  if (region) {
-    // Backend expects integer-friendly pixel coords in the original image frame.
-    const r: BBox = {
-      x: Math.round(region.x),
-      y: Math.round(region.y),
-      w: Math.round(region.w),
-      h: Math.round(region.h),
+  if (region && region.points.length >= 3) {
+    // Lasso polygon in original-image pixel coords.
+    const payload = {
+      points: region.points.map(
+        ([x, y]) => [Math.round(x), Math.round(y)] as [number, number],
+      ),
     };
-    fd.append("selected_region", JSON.stringify(r));
+    fd.append("selected_region", JSON.stringify(payload));
   }
 
   const res = await fetch(`${API_BASE}/api/inspect-wrinkle`, {

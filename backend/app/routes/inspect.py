@@ -78,9 +78,7 @@ def inspect_base64(
 ) -> InspectResponse:
     """Inspect a base64-encoded image (same result shape as the upload route)."""
     garment = _normalize_garment(payload.garment_type)
-    region_dict = (
-        payload.selected_region.model_dump() if payload.selected_region else None
-    )
+    region_dict = payload.selected_region or None  # polygon or rect dict
     try:
         raw, ext = image_io.decode_base64(payload.image_base64)
         img = image_io.decode_image(raw)  # validate before persisting

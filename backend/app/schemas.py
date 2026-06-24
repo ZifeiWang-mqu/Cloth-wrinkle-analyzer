@@ -105,7 +105,8 @@ class InspectResponse(BaseModel):
 class InspectBase64Request(BaseModel):
     image_base64: str  # raw base64 or a data URL ("data:image/png;base64,...")
     garment_type: str | None = None
-    selected_region: BBox | None = None
+    # Either a polygon {"points": [[x, y], ...]} (lasso) or a rect {x, y, w, h}.
+    selected_region: dict | None = None
     source: str = "external"  # "web" | "photoshop" | "external"
 
 

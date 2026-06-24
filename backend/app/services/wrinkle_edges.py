@@ -60,11 +60,15 @@ class WrinkleLine:
 @dataclass
 class WrinkleCandidates:
     lines: list[WrinkleLine] = field(default_factory=list)
-    edge_map: np.ndarray | None = None  # uint8 (crop frame)
+    edge_map: np.ndarray | None = None  # uint8 (crop frame, polygon-masked)
     gray: np.ndarray | None = None  # preprocessed grayscale crop
     crop: np.ndarray | None = None  # BGR crop
     offset: tuple[int, int] = (0, 0)  # (x, y) of crop within full image
     crop_shape: tuple[int, int] = (0, 0)  # (h, w)
+    # Effective analysed area in px: polygon mask area when a lasso was used,
+    # otherwise the crop area. Used for density normalisation.
+    area_px: float = 0.0
+    mask: np.ndarray | None = None  # uint8 0/255 polygon mask (crop frame)
 
     @property
     def count(self) -> int:
@@ -110,6 +114,14 @@ def extract_wrinkle_candidates(
         gray = _preprocess(crop)
         edges = _auto_canny(gray)
 
+        h, w = gray.shape[:2]
+
+        # Restrict to the lasso polygon (if any) so only lines inside the drawn
+        # shape are considered. Everything outside the mask is zeroed.
+        mask = region.crop_mask((h, w))
+        if mask is not None:
+            edges = cv2.bitwise_and(edges, edges, mask=mask)
+
         # Optional skeletonization to thin thick strokes before Hough.
         edge_for_hough = edges
         try:
@@ -119,8 +131,6 @@ def extract_wrinkle_candidates(
             edge_for_hough = (skel.astype(np.uint8)) * 255
         except Exception:  # pragma: no cover - skimage optional / edge cases
             pass
-
-        h, w = gray.shape[:2]
         min_len = max(12, int(0.06 * min(h, w)))
         raw = cv2.HoughLinesP(
             edge_for_hough,
@@ -137,6 +147,7 @@ def extract_wrinkle_candidates(
                 x1, y1, x2, y2 = (float(v) for v in seg)
                 lines.append(WrinkleLine(x1, y1, x2, y2))
 
+        area_px = float(np.count_nonzero(mask)) if mask is not None else float(h * w)
         return WrinkleCandidates(
             lines=lines,
             edge_map=edges,
@@ -144,6 +155,8 @@ def extract_wrinkle_candidates(
             crop=crop,
             offset=(region.x, region.y),
             crop_shape=(h, w),
+            area_px=area_px,
+            mask=mask,
         )
 
     except Exception as exc:  # pragma: no cover - defensive

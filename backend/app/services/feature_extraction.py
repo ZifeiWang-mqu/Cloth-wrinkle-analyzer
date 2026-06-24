@@ -244,17 +244,18 @@ def extract_features(
     feats = Features(pose_detected=pose.detected)
 
     h, w = candidates.crop_shape if candidates.crop_shape != (0, 0) else (0, 0)
-    feats.area_px = float(h * w)
+    # Effective analysed area: polygon mask area when a lasso was used, else crop.
+    feats.area_px = (
+        candidates.area_px if getattr(candidates, "area_px", 0.0) > 0 else float(h * w)
+    )
     ox, oy = candidates.offset
 
     lines = candidates.lines
     feats.num_lines = len(lines)
 
-    # Edge density from the raw edge map.
-    if candidates.edge_map is not None and candidates.edge_map.size:
-        feats.edge_density = float(np.count_nonzero(candidates.edge_map)) / float(
-            candidates.edge_map.size
-        )
+    # Edge density (over the analysed area, so polygon selections are comparable).
+    if candidates.edge_map is not None and candidates.edge_map.size and feats.area_px > 0:
+        feats.edge_density = float(np.count_nonzero(candidates.edge_map)) / feats.area_px
         feats.patch_density_std, feats.patch_density_max_z = _patch_density(
             candidates.edge_map
         )

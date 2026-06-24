@@ -25,6 +25,11 @@ export interface BBox {
   h: number;
 }
 
+// Freehand lasso ("rope") selection: polygon vertices in natural-image px.
+export interface RegionPolygon {
+  points: [number, number][];
+}
+
 export interface Issue {
   id: string;
   type: IssueType;

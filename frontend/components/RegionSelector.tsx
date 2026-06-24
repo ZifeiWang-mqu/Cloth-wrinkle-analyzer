@@ -3,19 +3,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
-import type { BBox, Issue } from "@/lib/types";
+import type { BBox, Issue, RegionPolygon } from "@/lib/types";
 import HeatmapOverlay from "./HeatmapOverlay";
 
 type DrawMode = "region" | "issue" | "off";
+type Pt = { x: number; y: number };
 
 interface Props {
   imageUrl: string;
   drawMode: DrawMode;
-  region: BBox | null; // natural-image coords
-  draftIssueBox: BBox | null; // natural-image coords (manual missed issue)
-  issues: Issue[]; // visible issues to overlay
+  region: RegionPolygon | null; // natural-image coords (lasso)
+  draftIssueBox: BBox | null; // natural-image coords (missed issue rect)
+  issues: Issue[];
   selectedIssueId: string | null;
-  onRegionChange: (region: BBox | null) => void;
+  onRegionChange: (region: RegionPolygon | null) => void;
   onIssueBoxChange: (box: BBox | null) => void;
   onSelectIssue: (id: string | null) => void;
 }
@@ -27,10 +28,20 @@ interface Rect {
   h: number;
 }
 
+function polygonArea(pts: Pt[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length;
+    a += pts[i].x * pts[j].y - pts[j].x * pts[i].y;
+  }
+  return Math.abs(a) / 2;
+}
+
 /**
- * Image stage. A drag draws either the garment region or a missed-issue box
- * (per `drawMode`), captured in displayed px and converted to the natural
- * image frame. Detected issues are overlaid (clickable) at the same scale.
+ * Image stage. In "region" mode a freehand lasso (rope) traces a polygon; in
+ * "issue" mode a drag makes a rectangle (manual missed issue). Coordinates are
+ * captured in displayed px and converted to the natural image frame. Detected
+ * issues are overlaid (clickable) at the same scale.
  */
 export default function RegionSelector({
   imageUrl,
@@ -46,9 +57,10 @@ export default function RegionSelector({
   const imgRef = useRef<HTMLImageElement>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
   const [display, setDisplay] = useState({ w: 0, h: 0 });
-  const [dragRect, setDragRect] = useState<Rect | null>(null);
+  const [lasso, setLasso] = useState<Pt[] | null>(null); // live lasso (display px)
+  const [dragRect, setDragRect] = useState<Rect | null>(null); // live issue rect
   const dragging = useRef(false);
-  const start = useRef<{ x: number; y: number } | null>(null);
+  const start = useRef<Pt | null>(null);
 
   const measure = useCallback(() => {
     const img = imgRef.current;
@@ -70,68 +82,101 @@ export default function RegionSelector({
 
   const scale = natural.w > 0 ? display.w / natural.w : 1;
 
-  function localPoint(e: ReactPointerEvent): { x: number; y: number } {
+  function localPoint(e: ReactPointerEvent): Pt {
     const img = imgRef.current!;
     const rect = img.getBoundingClientRect();
-    const x = Math.min(Math.max(0, e.clientX - rect.left), rect.width);
-    const y = Math.min(Math.max(0, e.clientY - rect.top), rect.height);
-    return { x, y };
+    return {
+      x: Math.min(Math.max(0, e.clientX - rect.left), rect.width),
+      y: Math.min(Math.max(0, e.clientY - rect.top), rect.height),
+    };
   }
 
   function onPointerDown(e: ReactPointerEvent) {
     if (drawMode === "off") {
-      onSelectIssue(null); // click empty area to deselect
+      onSelectIssue(null);
       return;
     }
     (e.target as Element).setPointerCapture?.(e.pointerId);
     dragging.current = true;
     const p = localPoint(e);
     start.current = p;
-    setDragRect({ x: p.x, y: p.y, w: 0, h: 0 });
+    if (drawMode === "region") setLasso([p]);
+    else setDragRect({ x: p.x, y: p.y, w: 0, h: 0 });
   }
 
   function onPointerMove(e: ReactPointerEvent) {
-    if (!dragging.current || !start.current) return;
+    if (!dragging.current) return;
     const p = localPoint(e);
-    const s = start.current;
-    setDragRect({
-      x: Math.min(s.x, p.x),
-      y: Math.min(s.y, p.y),
-      w: Math.abs(p.x - s.x),
-      h: Math.abs(p.y - s.y),
-    });
+    if (drawMode === "region") {
+      setLasso((prev) => {
+        if (!prev) return [p];
+        const last = prev[prev.length - 1];
+        if (Math.hypot(p.x - last.x, p.y - last.y) < 3) return prev;
+        return [...prev, p];
+      });
+    } else if (drawMode === "issue" && start.current) {
+      const s = start.current;
+      setDragRect({
+        x: Math.min(s.x, p.x),
+        y: Math.min(s.y, p.y),
+        w: Math.abs(p.x - s.x),
+        h: Math.abs(p.y - s.y),
+      });
+    }
   }
 
   function onPointerUp() {
     if (!dragging.current) return;
     dragging.current = false;
-    const r = dragRect;
     const mode = drawMode;
     start.current = null;
-    setDragRect(null);
-    if (!r || r.w < 5 || r.h < 5 || scale === 0) {
-      if (mode === "region") onRegionChange(null);
+
+    if (mode === "region") {
+      const pts = lasso;
+      setLasso(null);
+      if (!pts || pts.length < 3 || scale === 0 || polygonArea(pts) < 100) {
+        onRegionChange(null);
+        return;
+      }
+      onRegionChange({
+        points: pts.map((p) => [p.x / scale, p.y / scale] as [number, number]),
+      });
       return;
     }
-    const natbox: BBox = {
-      x: r.x / scale,
-      y: r.y / scale,
-      w: r.w / scale,
-      h: r.h / scale,
-    };
-    if (mode === "region") onRegionChange(natbox);
-    else if (mode === "issue") onIssueBoxChange(natbox);
+
+    if (mode === "issue") {
+      const r = dragRect;
+      setDragRect(null);
+      if (!r || r.w < 5 || r.h < 5 || scale === 0) return;
+      onIssueBoxChange({
+        x: r.x / scale,
+        y: r.y / scale,
+        w: r.w / scale,
+        h: r.h / scale,
+      });
+    }
   }
 
-  const toDisplay = (b: BBox): Rect => ({
-    x: b.x * scale,
-    y: b.y * scale,
-    w: b.w * scale,
-    h: b.h * scale,
-  });
+  // Committed region polygon -> display points.
+  const regionDisplay: Pt[] | null =
+    lasso ??
+    (region && region.points.length >= 3
+      ? region.points.map(([x, y]) => ({ x: x * scale, y: y * scale }))
+      : null);
+  const regionIsLive = lasso !== null;
 
-  const regionBox = dragRect && drawMode === "region" ? dragRect : region ? toDisplay(region) : null;
-  const issueDraft = dragRect && drawMode === "issue" ? dragRect : draftIssueBox ? toDisplay(draftIssueBox) : null;
+  const issueDraft: Rect | null =
+    dragRect ??
+    (draftIssueBox
+      ? {
+          x: draftIssueBox.x * scale,
+          y: draftIssueBox.y * scale,
+          w: draftIssueBox.w * scale,
+          h: draftIssueBox.h * scale,
+        }
+      : null);
+
+  const ptsStr = (pts: Pt[]) => pts.map((p) => `${p.x},${p.y}`).join(" ");
 
   return (
     <div
@@ -144,11 +189,30 @@ export default function RegionSelector({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img ref={imgRef} src={imageUrl} alt="検査対象" onLoad={measure} draggable={false} />
 
-      {regionBox && (
-        <div
-          className="selection-box"
-          style={{ left: regionBox.x, top: regionBox.y, width: regionBox.w, height: regionBox.h }}
-        />
+      {regionDisplay && (
+        <svg
+          className="lasso-svg"
+          width={display.w}
+          height={display.h}
+          style={{ position: "absolute", left: 0, top: 0, pointerEvents: "none" }}
+        >
+          {regionIsLive ? (
+            <polyline
+              points={ptsStr(regionDisplay)}
+              fill="rgba(79,140,255,0.12)"
+              stroke="var(--accent)"
+              strokeWidth={2}
+              strokeDasharray="5 4"
+            />
+          ) : (
+            <polygon
+              points={ptsStr(regionDisplay)}
+              fill="rgba(79,140,255,0.15)"
+              stroke="var(--accent)"
+              strokeWidth={2}
+            />
+          )}
+        </svg>
       )}
 
       {issueDraft && (

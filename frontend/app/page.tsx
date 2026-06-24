@@ -19,6 +19,7 @@ import {
   type InspectResponse,
   type IssueType,
   type ModelStatus,
+  type RegionPolygon,
   TYPE_LABELS,
 } from "@/lib/types";
 
@@ -28,7 +29,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [garmentType, setGarmentType] = useState<GarmentType>("unknown");
-  const [region, setRegion] = useState<BBox | null>(null);
+  const [region, setRegion] = useState<RegionPolygon | null>(null);
   const [result, setResult] = useState<InspectResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +222,7 @@ export default function Home() {
               </button>
               {region && (
                 <span className="hint">
-                  {Math.round(region.w)}×{Math.round(region.h)}px{" "}
+                  なげなわ {region.points.length} 点{" "}
                   <button type="button" className="chip" onClick={() => setRegion(null)}>
                     クリア
                   </button>
@@ -298,7 +299,7 @@ export default function Home() {
               {addMode
                 ? "ドラッグで見逃し範囲を指定 → 左の「見逃しとして送信」"
                 : regionEditMode
-                  ? "ドラッグで服領域を選択（任意）。"
+                  ? "なぞって服領域を囲みます（ロープツール・任意。指を離すと確定）。"
                   : "検出枠をクリックすると詳細が右に表示されます。"}
             </p>
           )}
