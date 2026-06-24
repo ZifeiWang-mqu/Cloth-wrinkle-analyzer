@@ -25,3 +25,22 @@ reports/
 # OS / editor
 .DS_Store
 .vscode/
+
+# Dataset / external image data
+data/
+external/
+.dataset_venv/
+
+# User input illustrations / private image data
+data/illustrations_raw/
+data/outputs/
+data/uploads/
+data/photos_raw/
+data/photos_masks/
+data/features/
+data/models/
+data/*.json
+data/*.csv
+data/*.parquet
+external/
+.dataset_venv/
