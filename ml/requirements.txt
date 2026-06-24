@@ -1,0 +1,7 @@
+# ML/feature-extraction deps. Reuses the backend pipeline, so install the
+# backend requirements too (same OpenCV/NumPy/scikit-image versions).
+-r ../backend/requirements.txt
+
+pandas>=2.0
+pyarrow>=14.0      # for parquet output (falls back to CSV if missing)
+PyYAML>=6.0        # for ml/configs/*.yaml

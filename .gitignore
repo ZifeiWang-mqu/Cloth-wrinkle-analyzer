@@ -1,0 +1,27 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Node / Next.js
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+
+# Environment files
+.env
+.env.*
+frontend/.env.local
+backend/.env
+
+# Local data / uploads / database
+backend/uploads/
+backend/*.db
+backend/*.sqlite
+backend/*.sqlite3
+data/
+reports/
+
+# OS / editor
+.DS_Store
+.vscode/

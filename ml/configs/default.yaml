@@ -1,0 +1,20 @@
+# Configuration for ml/extract_photo_features.py
+# Paths are relative to the repository root.
+
+photos_root: data/photos_raw          # data/photos_raw/<garment>/*.jpg
+masks_root: data/photos_masks         # optional binary masks (same rel. path)
+output_path: data/features/photo_reference_features.parquet
+reference_stats_path: data/features/reference_stats.json
+
+# Patching
+patch_size: 128       # square patch side in pixels
+stride: 128           # step between patches (== patch_size -> non-overlapping)
+min_patch_coverage: 0.5   # if a mask exists, keep patches with >= this coverage
+min_lines_per_patch: 0    # drop patches with fewer detected lines (0 = keep all)
+
+# Feature extractor: "classic" (OpenCV, reuses backend) | "dino" (future)
+extractor: classic
+
+# Image-level train/test split (no patch leakage across the split)
+test_ratio: 0.2
+seed: 42

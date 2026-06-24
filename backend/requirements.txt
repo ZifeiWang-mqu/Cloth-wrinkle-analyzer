@@ -1,0 +1,26 @@
+# --- Web framework ---
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9
+pydantic>=2.5,<3.0
+pydantic-settings>=2.1
+
+# --- Database ---
+SQLAlchemy>=2.0,<3.0
+
+# --- Image processing ---
+opencv-python-headless>=4.8
+numpy>=1.24
+scikit-image>=0.22
+Pillow>=10.0
+
+# --- Pose estimation (OPTIONAL) ---
+# MediaPipe is heavy and platform-specific. The app runs without it
+# (pose_detected=false). Install manually if you want pose features:
+#   pip install mediapipe
+# mediapipe>=0.10
+
+# --- Dev / test ---
+pytest>=8.0
+httpx>=0.27
+ruff>=0.4
