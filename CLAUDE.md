@@ -31,13 +31,24 @@ ruff check . && ruff format .                # Lint / format
 ## アーキテクチャの要点
 
 - API 契約は `app/schemas.py` が単一の真実。TypeScript 側もこれに合わせる。
-- 検査パイプラインは `routes/inspect.py` がオーケストレーション:
-  `segmentation -> pose -> wrinkle_edges -> feature_extraction -> rule_engine`。
+- 検査の共通ロジックは `services/inspection_service.py` の `run_inspection`。
+  `inspect-wrinkle`（ファイル）と `inspect-base64`（外部ツール）が共有する:
+  `segmentation -> pose -> wrinkle_edges -> feature_extraction -> anomaly_model -> rule_engine`。
 - 6 要件のスコア関数は `services/rule_engine.py`。各関数は `ScoreResult`
   （score / confidence / bbox / detail）を返す。新ルール追加時はここに足し、
-  `_SCORERS` と `run_all_scores` に登録する。
+  `_SCORERS` と `run_all_scores` に登録する。`integrate_scores` が閾値適用と統合を行う。
+- 判定閾値は `app/config/thresholds.json`（`services/thresholds.py` で読込、
+  issue_type/garment_type 別）。密度判定は `data/features/reference_stats.json`
+  （`services/reference_stats.py`）を使用。**バックエンド判定閾値**と
+  **フロント表示閾値**は区別する。
+- issue は `score` / `threshold` / `flagged` を含み、`score >= min_report_score` で返却。
 - 画像処理は**例外を投げない**方針。失敗時は空結果 + `debug.notes`。
 - 設定・しきい値は `app/settings.py`（環境変数 `WRINKLE_*` で上書き）。
+- 外部ツール用: `routes/status.py`（`/api/model/status`, `/api/inspection/{id}`）。
+  CORS は既定でフロントのみ許可、`WRINKLE_CORS_ALLOW_ALL=true` で全許可。
+- DB スキーマ変更は `db/database.py` の追加カラム自動マイグレーション（ALTER TABLE）。
+- フィードバックは強化版（image_id / issue_type / original・corrected bbox / confidence /
+  severity / source）。`missed_issue` も保存（将来の学習データ）。
 
 ## 作業ルール
 

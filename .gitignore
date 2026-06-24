@@ -89,3 +89,6 @@ frontend/out/
 
 # OS
 .DS_Store
+
+# Local annotation data
+data/annotations/
