@@ -52,6 +52,47 @@
 
 ---
 
+## 解析結果の例
+
+以下は、アップロード画像に対して本アプリが行った解析結果の例です。  
+服領域を指定したうえで、皺の密度・張力点・重力方向・立体構造との整合性などをもとに、不自然な可能性のある箇所を可視化しています。表示されるスコアや検出枠は、修正が必要な箇所を断定するものではなく、作画確認のための参考情報です。
+
+### 目立つ問題が検出されなかった例
+
+![解析例: 目立つ問題なし](docs/images/readme/analysis-art-no-detection-background-heavy.jpg)
+
+背景や人物を含む画像でも、指定した服領域に対して目立つ問題がない場合は、検出結果は表示されません。
+
+![解析例: ジャケット領域の通常判定](docs/images/readme/analysis-art-jacket-no-visible-issue.jpg)
+
+服領域が広く指定されていても、スコアが閾値を下回る場合は「目立つ問題なし」として扱われます。
+
+![解析例: 通常のシャツ画像](docs/images/readme/analysis-photo-normal-example.jpg)
+
+実写画像に対しても、皺の流れや密度が自然な範囲にある場合は、問題なしとして表示されます。
+
+### 局所的な検出ハイライトの例
+
+![解析例: 肩周辺の局所ハイライト](docs/images/readme/analysis-art-shoulder-local-highlight.jpg)
+
+検出されたissueには番号付きのハイライトが表示され、右側の検査結果リストと対応します。ハイライトは画像全体ではなく、判定に寄与した局所領域を示します。
+
+![解析例: 密度と張力点の検出](docs/images/readme/analysis-art-jacket-density-tension-highlight.jpg)
+
+皺の密度が不自然な箇所や、張力点が不明瞭な箇所は、issue typeごとの色で表示されます。
+
+![解析例: 写真での誤検出例](docs/images/readme/analysis-photo-false-positive-example.jpg)
+
+現行MVPはルールベースと古典的画像処理を中心としているため、写真や複雑な背景では誤検出が発生する場合があります。検出結果は、ユーザーフィードバックによって `false_positive` や `wrong_location` として保存し、今後の精度改善に利用できます。
+
+### 検出されない例
+
+![解析例: 検出なし](docs/images/readme/analysis-art-cloak-no-visible-issue.jpg)
+
+スコアが表示閾値を下回る場合、検出枠は表示されません。表示閾値を調整することで、参考レベルのissueも確認できます。
+
+---
+
 ## 技術スタック
 
 | 領域 | 使用技術 |
