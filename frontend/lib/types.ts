@@ -63,6 +63,9 @@ export interface DebugInfo {
     mask_area_ratio: number;
     fallback_used: boolean;
     reason: string | null;
+    device?: string | null;
+    model_type?: string | null;
+    last_error?: string | null;
   } | null;
   pose?: {
     detected: boolean;
