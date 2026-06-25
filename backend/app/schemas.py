@@ -65,6 +65,20 @@ class BBox(BaseModel):
 # --------------------------------------------------------------------------- #
 # Inspection
 # --------------------------------------------------------------------------- #
+class EvidenceBox(BaseModel):
+    """A small local region (around a wrinkle line / patch) that contributed to
+    an issue's score. Coordinates are in original-image pixels."""
+
+    x: float = Field(..., ge=0.0)
+    y: float = Field(..., ge=0.0)
+    w: float = Field(..., gt=0.0)
+    h: float = Field(..., gt=0.0)
+    score: float | None = None
+    reason: str | None = None
+    source: str | None = None  # "wrinkle_line" | "patch" | "convergence" | ...
+    fallback_broad_bbox: bool = False
+
+
 class Issue(BaseModel):
     id: str
     type: IssueType
@@ -79,6 +93,10 @@ class Issue(BaseModel):
     score: float = Field(0.0, ge=0.0, le=1.0)
     threshold: float = Field(0.0, ge=0.0, le=1.0)
     flagged: bool = True
+    # Local evidence regions (preferred over the broad bbox by the frontend).
+    # Falls back to a single box derived from `bbox` (fallback_broad_bbox=True)
+    # when no precise local evidence could be computed.
+    evidence_boxes: list[EvidenceBox] = Field(default_factory=list)
 
 
 class DebugInfo(BaseModel):

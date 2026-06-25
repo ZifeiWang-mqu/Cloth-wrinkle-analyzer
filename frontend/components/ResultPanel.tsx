@@ -104,7 +104,7 @@ export default function ResultPanel({
         <p className="hint">表示条件に合う検出はありません（閾値やフィルタを調整してください）。</p>
       ) : (
         <div className="issue-list">
-          {issues.map((issue) => {
+          {issues.map((issue, i) => {
             const color = ISSUE_COLORS[issue.type];
             const active = issue.id === selectedIssueId;
             return (
@@ -116,7 +116,9 @@ export default function ResultPanel({
                 onClick={() => onSelectIssue(issue.id)}
               >
                 <span className="issue-row-main">
-                  <span className="dot" style={{ background: color }} />
+                  <span className="issue-row-num" style={{ background: color }}>
+                    {i + 1}
+                  </span>
                   <span className="label">{issue.label}</span>
                   {!issue.flagged && <span className="ref-tag">参考</span>}
                 </span>

@@ -51,7 +51,9 @@ def test_inspect_base64_matches_shape(client):
     assert "anomaly_model" in body["debug"]["scores"]
     # New per-issue fields are present when issues exist.
     for issue in body["issues"]:
-        assert {"score", "threshold", "flagged"} <= set(issue)
+        assert {"score", "threshold", "flagged", "evidence_boxes"} <= set(issue)
+        assert isinstance(issue["evidence_boxes"], list)
+        assert len(issue["evidence_boxes"]) >= 1  # precise or fallback
 
 
 def test_inspect_base64_rejects_bad_data(client):

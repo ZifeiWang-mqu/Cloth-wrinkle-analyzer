@@ -40,6 +40,9 @@ interface Props {
   showMask?: boolean;
   showPose?: boolean;
   showLines?: boolean;
+  showPrecise?: boolean;
+  showBroad?: boolean;
+  showLabels?: boolean;
 }
 
 interface Rect {
@@ -78,6 +81,9 @@ export default function RegionSelector({
   showMask,
   showPose,
   showLines,
+  showPrecise = true,
+  showBroad = false,
+  showLabels = true,
 }: Props) {
   const imgRef = useRef<HTMLImageElement>(null);
   const [natural, setNatural] = useState({ w: 0, h: 0 });
@@ -299,6 +305,9 @@ export default function RegionSelector({
         scale={scale}
         selectedId={selectedIssueId}
         onSelect={onSelectIssue}
+        showLabels={showLabels}
+        showPrecise={showPrecise}
+        showBroad={showBroad}
       />
     </div>
   );

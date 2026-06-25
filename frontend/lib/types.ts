@@ -30,6 +30,17 @@ export interface RegionPolygon {
   points: [number, number][];
 }
 
+export interface EvidenceBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  score?: number | null;
+  reason?: string | null;
+  source?: string | null;
+  fallback_broad_bbox?: boolean;
+}
+
 export interface Issue {
   id: string;
   type: IssueType;
@@ -41,6 +52,7 @@ export interface Issue {
   score: number; // 生スコア 0..1
   threshold: number; // 判定に使われた閾値
   flagged: boolean; // バックエンド判定で検出扱いか
+  evidence_boxes?: EvidenceBox[]; // 局所的な根拠ボックス（優先表示）
 }
 
 export interface Overlays {

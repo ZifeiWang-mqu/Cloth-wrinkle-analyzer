@@ -26,6 +26,7 @@ from app.db.models import Inspection
 from app.schemas import DebugInfo, InspectResponse
 from app.services import capabilities
 from app.services.anomaly_model import get_anomaly_model
+from app.services.evidence import build_evidence_for_issues
 from app.services.feature_extraction import extract_features
 from app.services.illustration_model import get_illustration_model, is_ready
 from app.services.pose import estimate_pose, get_joint_contexts
@@ -169,6 +170,11 @@ def run_inspection(
         result_str = payload["result"]
         scores = payload["scores"]
         model_scores = payload.get("model_scores", {})
+
+        # Attach precise local evidence boxes (small JSON; no images).
+        build_evidence_for_issues(
+            issues, candidates, features, pose, region_context, (ih, iw)
+        )
 
         if not pose.detected:
             notes.append("pose_not_detected: 関節系の判定は低信頼度です。")

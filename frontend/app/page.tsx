@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import ImageUploader from "@/components/ImageUploader";
 import InspectionOptions from "@/components/InspectionOptions";
+import IssueLegend from "@/components/IssueLegend";
 import IssueControls, {
   type SeverityFilter,
   type SortBy,
@@ -59,6 +60,9 @@ export default function Home() {
   const [showMask, setShowMask] = useState(true);
   const [showPose, setShowPose] = useState(true);
   const [showLines, setShowLines] = useState(false);
+  const [showPrecise, setShowPrecise] = useState(true);
+  const [showBroad, setShowBroad] = useState(false);
+  const [showLabels, setShowLabels] = useState(true);
 
   useEffect(() => {
     getModelStatus()
@@ -325,17 +329,48 @@ export default function Home() {
               showMask={showMask}
               showPose={showPose}
               showLines={showLines}
+              showPrecise={showPrecise}
+              showBroad={showBroad}
+              showLabels={showLabels}
             />
           ) : (
             <div className="empty">ここに画像が表示されます。</div>
           )}
+          {result && (
+            <div className="overlay-controls">
+              <button
+                type="button"
+                className={`chip${showPrecise ? " selected" : ""}`}
+                onClick={() => setShowPrecise((v) => !v)}
+              >
+                精密ハイライト
+              </button>
+              <button
+                type="button"
+                className={`chip${showBroad ? " selected" : ""}`}
+                onClick={() => setShowBroad((v) => !v)}
+                title="広域の issue bbox（参考・デバッグ用）"
+              >
+                広域ボックス（参考）
+              </button>
+              <button
+                type="button"
+                className={`chip${showLabels ? " selected" : ""}`}
+                onClick={() => setShowLabels((v) => !v)}
+                disabled={!showPrecise && !showBroad}
+              >
+                ラベル
+              </button>
+            </div>
+          )}
+          {result && showPrecise && <IssueLegend issues={filteredIssues} />}
           {previewUrl && (
             <p className="hint" style={{ marginTop: 8 }}>
               {addMode
                 ? "ドラッグで見逃し範囲を指定 → 左の「見逃しとして送信」"
                 : regionEditMode
                   ? "なぞって服領域を囲みます（ロープツール・任意。指を離すと確定）。"
-                  : "検出枠をクリックすると詳細が右に表示されます。"}
+                  : "検出枠（番号付き）をクリックすると詳細が右に表示されます。"}
             </p>
           )}
         </section>

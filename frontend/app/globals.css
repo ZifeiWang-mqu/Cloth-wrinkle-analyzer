@@ -199,7 +199,7 @@ textarea {
 .issue-box .tag {
   position: absolute;
   top: -20px;
-  left: -2px;
+  left: 18px;
   font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
@@ -207,6 +207,27 @@ textarea {
   color: #111;
   white-space: nowrap;
   line-height: 1.5;
+}
+
+/* Number badge inside the top-left corner of an issue highlight box. */
+.issue-box .issue-num {
+  position: absolute;
+  top: -10px;
+  left: -10px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  color: #0b0d11;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.issue-box:hover {
+  filter: brightness(1.12);
 }
 
 .sev-high {
@@ -586,6 +607,60 @@ input[type="range"] {
   gap: 6px;
   flex-wrap: wrap;
   margin-top: 6px;
+}
+
+/* Issue-highlight controls + legend (under the image) */
+.overlay-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.legend-title {
+  font-weight: 700;
+  color: var(--text);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+
+/* Number badge in the result list (matches overlay badge) */
+.issue-row-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0b0d11;
+  margin-right: 6px;
 }
 
 /* Score breakdown */

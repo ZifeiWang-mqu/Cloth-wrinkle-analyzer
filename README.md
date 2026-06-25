@@ -357,7 +357,7 @@ curl http://localhost:8000/api/model/status
 
 ---
 
-## 任意機能: フィードバックを使ったイラスト専用モデル
+## 追加機能: フィードバックを使ったイラスト専用モデル
 
 保存されたフィードバックデータから、イラスト向けの学習データセットを作成できます。
 
@@ -374,17 +374,6 @@ python ml/train_illustration_feedback_model.py   --features data/illustration_fe
 このモデルは、誤検出の削減や、イラスト特有の線画表現への適応を目的としています。
 
 ---
-
-## デプロイ
-
-### 推奨MVPデプロイ構成
-
-| 項目 | 推奨 |
-|---|---|
-| フロントエンド | Vercel |
-| バックエンド | Render / Railway / Fly.io / Cloud Run |
-| モデルファイル | 永続ディスクまたはオブジェクトストレージ |
-| データベース | デモ用途はSQLite、本番用途はPostgreSQL推奨 |
 
 ### 環境変数
 
