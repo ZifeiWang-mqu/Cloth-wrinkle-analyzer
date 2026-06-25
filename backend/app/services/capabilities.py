@@ -41,6 +41,18 @@ def get_capabilities(settings: Settings) -> dict:
     else:
         seg_provider = "opencv"  # always-available fallback
 
+    # SAM runtime state (does not force a load).
+    sam_loaded = False
+    sam_device = settings.sam_device
+    try:
+        from app.services.segmentation import get_sam_segmenter
+
+        st = get_sam_segmenter(settings).status()
+        sam_loaded = bool(st.get("sam_loaded", False))
+        sam_device = st.get("device", sam_device)
+    except Exception:  # pragma: no cover - defensive
+        pass
+
     illu_path = settings.illustration_model_path
     illu_available = sklearn_available() and illu_path.exists()
     if not sklearn_available():
@@ -51,6 +63,16 @@ def get_capabilities(settings: Settings) -> dict:
         illu_reason = None
 
     return {
+        # Doc-shaped capability blocks.
+        "sam": {
+            "available": sam_ok,
+            "loaded": sam_loaded,
+            "checkpoint_exists": checkpoint_present,
+            "device": sam_device,
+        },
+        "opencv": {"available": True},
+        "mediapipe": {"available": mediapipe_available()},
+        # Backward-compatible grouped blocks (used elsewhere).
         "segmentation": {
             "sam_available": sam_ok,
             "sam_checkpoint_present": checkpoint_present,

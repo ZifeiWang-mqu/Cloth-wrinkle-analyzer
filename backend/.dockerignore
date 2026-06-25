@@ -1,0 +1,20 @@
+# Keep the build context small and never bake in models / data / venvs.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local data, models, checkpoints — provided via volumes at runtime.
+../data/
+data/
+models/
+*.pth
+*.pt
+*.onnx
+*.joblib
+*.db
+
+# Tests / docs not needed at runtime (optional)
+tests/

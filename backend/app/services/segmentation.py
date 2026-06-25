@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -122,7 +123,7 @@ def get_garment_region(
 
 
 # --------------------------------------------------------------------------- #
-# Garment segmentation (SAM with OpenCV fallback)
+# Garment segmentation (SAM with geometric fallback)
 # --------------------------------------------------------------------------- #
 @dataclass
 class SegmentationResult:
@@ -133,6 +134,9 @@ class SegmentationResult:
     mask_area_ratio: float = 0.0
     fallback_used: bool = False
     reason: str | None = None
+    device: str | None = None
+    model_type: str | None = None
+    last_error: str | None = None
 
     def to_debug(self) -> dict:
         return {
@@ -142,6 +146,9 @@ class SegmentationResult:
             "mask_area_ratio": round(self.mask_area_ratio, 4),
             "fallback_used": self.fallback_used,
             "reason": self.reason,
+            "device": self.device,
+            "model_type": self.model_type,
+            "last_error": self.last_error,
         }
 
 
@@ -160,43 +167,179 @@ def _full_bbox_mask(shape: tuple[int, int], region: GarmentRegion) -> np.ndarray
     return mask
 
 
-# Module-level SAM predictor cache (keyed by checkpoint path).
-_SAM_PREDICTOR: dict[str, object] = {}
+class BaseSegmenter:
+    name = "base"
+
+    def segment(
+        self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
+    ) -> np.ndarray | None:
+        raise NotImplementedError
 
 
-def _sam_mask(image: np.ndarray, region: GarmentRegion, settings) -> np.ndarray | None:
-    """Run SAM with a bbox prompt. Returns a full-image uint8 mask or None.
+class FallbackSegmenter(BaseSegmenter):
+    """Geometric fallback: lasso polygon > manual bbox > whole image."""
 
-    Optional: requires `segment_anything` + `torch` + a checkpoint. Any failure
-    returns None so the caller can fall back.
+    name = "opencv"
+
+    def __init__(self, settings):
+        self.settings = settings
+
+    def segment(
+        self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
+    ) -> tuple[np.ndarray, str]:
+        h, w = image.shape[:2]
+        if region.polygon and len(region.polygon) >= 3:
+            return _full_polygon_mask((h, w), region.polygon), "user_polygon"
+        if region.used_selection:
+            return _full_bbox_mask((h, w), region), "manual_bbox"
+        if self.settings.segmentation_fallback == "manual_bbox" and region.used_selection:
+            return _full_bbox_mask((h, w), region), "manual_bbox"
+        return np.full((h, w), 255, dtype=np.uint8), "whole_image"
+
+
+class SamSegmenter(BaseSegmenter):
+    """SAM-based segmenter. Optional (torch + segment_anything + checkpoint).
+
+    Lazy-loads the model on first use; supports cpu/cuda (auto-falls back to cpu
+    if CUDA is unavailable); can optionally download the checkpoint at runtime.
+    Tracks ``last_error`` and ``loaded`` for /api/model/status.
     """
-    try:
-        checkpoint = settings.resolved_sam_checkpoint
-        if checkpoint is None or not checkpoint.exists():
-            return None
-        from segment_anything import SamPredictor, sam_model_registry  # type: ignore
 
-        key = str(checkpoint)
-        predictor = _SAM_PREDICTOR.get(key)
-        if predictor is None:
-            sam = sam_model_registry[settings.sam_model_type](checkpoint=str(checkpoint))
-            predictor = SamPredictor(sam)
-            _SAM_PREDICTOR[key] = predictor
+    name = "sam"
 
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        predictor.set_image(rgb)
-        box = np.array(
-            [region.x, region.y, region.x + region.w, region.y + region.h],
-            dtype=np.float32,
-        )
-        masks, scores, _ = predictor.predict(box=box, multimask_output=True)
-        if masks is None or len(masks) == 0:
-            return None
-        best = masks[int(np.argmax(scores))]
-        return (best.astype(np.uint8)) * 255
-    except Exception as exc:  # pragma: no cover - optional / env dependent
-        logger.warning("SAM segmentation failed: %s", exc)
+    def __init__(self, settings):
+        self.settings = settings
+        self.model_type = settings.sam_model_type
+        self.device = settings.sam_device
+        self._predictor = None
+        self.loaded = False
+        self.last_error: str | None = None
+
+    def available(self) -> bool:
+        try:
+            import importlib.util
+
+            return (
+                importlib.util.find_spec("segment_anything") is not None
+                and importlib.util.find_spec("torch") is not None
+            )
+        except Exception:  # pragma: no cover
+            return False
+
+    def ensure_checkpoint(self) -> Path | None:
+        cp = self.settings.resolved_sam_checkpoint
+        if cp is not None and cp.exists():
+            return cp
+        if self.settings.sam_auto_download and self.settings.sam_download_url:
+            target = cp or (self.settings.sam_dir / Path(self.settings.sam_download_url).name)
+            try:
+                import urllib.request
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                logger.info("Downloading SAM checkpoint -> %s", target)
+                urllib.request.urlretrieve(self.settings.sam_download_url, str(target))
+                return target if target.exists() else None
+            except Exception as exc:  # pragma: no cover - network dependent
+                self.last_error = f"download_failed: {exc}"
+                return None
         return None
+
+    def load(self) -> bool:
+        if self.loaded:
+            return True
+        if not self.available():
+            self.last_error = "segment_anything/torch not installed"
+            return False
+        try:
+            import torch  # type: ignore
+            from segment_anything import SamPredictor, sam_model_registry  # type: ignore
+
+            cp = self.ensure_checkpoint()
+            if cp is None or not cp.exists():
+                self.last_error = self.last_error or "checkpoint_missing"
+                return False
+            sam = sam_model_registry[self.model_type](checkpoint=str(cp))
+            device = self.device
+            if device == "cuda" and not torch.cuda.is_available():
+                logger.info("CUDA unavailable; using CPU for SAM.")
+                device = "cpu"
+            sam.to(device)
+            self.device = device
+            self._predictor = SamPredictor(sam)
+            self.loaded = True
+            self.last_error = None
+            logger.info("SAM loaded (%s, %s).", self.model_type, device)
+            return True
+        except Exception as exc:  # pragma: no cover - optional / env dependent
+            self.last_error = str(exc)
+            logger.warning("SAM load failed: %s", exc)
+            return False
+
+    def segment(
+        self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
+    ) -> np.ndarray | None:
+        if not self.load():
+            return None
+        try:
+            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            self._predictor.set_image(rgb)
+            box = np.array(
+                [region.x, region.y, region.x + region.w, region.y + region.h],
+                dtype=np.float32,
+            )
+            masks, scores, _ = self._predictor.predict(box=box, multimask_output=True)
+            if masks is None or len(masks) == 0:
+                return None
+            best = masks[int(np.argmax(scores))]
+            return (best.astype(np.uint8)) * 255
+        except Exception as exc:  # pragma: no cover - optional / env dependent
+            self.last_error = str(exc)
+            logger.warning("SAM segmentation failed: %s", exc)
+            return None
+
+    def status(self) -> dict:
+        cp = self.settings.resolved_sam_checkpoint
+        return {
+            "sam_available": self.available(),
+            "sam_loaded": self.loaded,
+            "checkpoint_path": str(cp)
+            if cp
+            else (self.settings.sam_checkpoint_path or None),
+            "checkpoint_exists": bool(cp and cp.exists()),
+            "model_type": self.model_type,
+            "device": self.device,
+            "last_error": self.last_error,
+        }
+
+
+_SAM_SEGMENTER: SamSegmenter | None = None
+
+
+def get_sam_segmenter(settings) -> SamSegmenter:
+    global _SAM_SEGMENTER
+    if _SAM_SEGMENTER is None:
+        _SAM_SEGMENTER = SamSegmenter(settings)
+    return _SAM_SEGMENTER
+
+
+def reset_sam_segmenter() -> None:
+    global _SAM_SEGMENTER
+    _SAM_SEGMENTER = None
+
+
+def sam_status(settings) -> dict:
+    """Status block for /api/model/status (does not force a load)."""
+    seg = get_sam_segmenter(settings)
+    st = seg.status()
+    st.update(
+        {
+            "enabled": settings.enable_auto_segmentation
+            or settings.segmentation_provider == "sam",
+            "provider": settings.segmentation_provider,
+            "fallback_provider": settings.segmentation_fallback,
+        }
+    )
+    return st
 
 
 def segment_garment(
@@ -208,9 +351,9 @@ def segment_garment(
 ) -> SegmentationResult:
     """Produce a garment mask (full-image) with graceful fallback.
 
-    Order: requested provider -> opencv geometric fallback. A user lasso polygon
-    is always honoured (intersected later). Masks outside the configured area
-    ratio band trigger a fallback.
+    Order: requested provider (SAM) -> geometric fallback. A user lasso polygon
+    is always honoured (intersected later). SAM masks outside the configured
+    area-ratio band trigger a fallback. Never raises.
     """
     if not use_segmentation:
         return SegmentationResult(enabled=False, provider="none")
@@ -218,68 +361,61 @@ def segment_garment(
     h, w = image.shape[:2]
     total = float(h * w)
     provider = (provider_override or settings.segmentation_provider or "opencv").lower()
-    result = SegmentationResult(enabled=True, provider=provider)
+    result = SegmentationResult(
+        enabled=True,
+        provider=provider,
+        device=settings.sam_device,
+        model_type=settings.sam_model_type,
+    )
 
     mask: np.ndarray | None = None
 
-    # Try SAM first if requested.
     if provider == "sam":
-        mask = _sam_mask(image, region, settings)
-        if mask is None:
-            result.fallback_used = True
-            result.reason = "sam_unavailable_or_failed"
-            provider = "opencv"
-            result.provider = "opencv"
-
-    # OpenCV geometric fallback (or explicit opencv provider).
-    if mask is None and provider in ("opencv", "none"):
-        if region.polygon and len(region.polygon) >= 3:
-            mask = _full_polygon_mask((h, w), region.polygon)
-            result.reason = result.reason or "user_polygon"
-        elif region.used_selection:
-            mask = _full_bbox_mask((h, w), region)
-            result.fallback_used = True
-            result.reason = result.reason or "bbox_fallback"
+        seg = get_sam_segmenter(settings)
+        mask = seg.segment(image, region)
+        result.device = seg.device
+        result.last_error = seg.last_error
+        if mask is not None:
+            ar = float(np.count_nonzero(mask)) / (total + 1e-9)
+            if not (
+                settings.segmentation_min_area_ratio
+                <= ar
+                <= settings.segmentation_max_area_ratio
+            ):
+                logger.info("SAM mask area ratio %.3f out of band; falling back.", ar)
+                mask = None
+                result.reason = "sam_area_out_of_band"
+        if mask is not None:
+            result.provider = "sam"
         else:
-            mask = np.full((h, w), 255, dtype=np.uint8)
             result.fallback_used = True
-            result.reason = result.reason or "whole_image_fallback"
+            result.reason = result.reason or (seg.last_error or "sam_unavailable")
+
+    if mask is None:
+        fb = FallbackSegmenter(settings)
+        mask, fb_reason = fb.segment(image, region)
+        result.provider = "opencv"
+        result.reason = result.reason or fb_reason
+        if provider == "sam":
+            result.fallback_used = True
 
     if mask is None:
         result.mask_available = False
         result.reason = result.reason or "no_mask"
         return result
 
-    area_ratio = float(np.count_nonzero(mask)) / (total + 1e-9)
-
-    # If a *real* (SAM) mask is implausibly small/large, fall back to bbox/whole.
-    if result.provider == "sam" and not (
-        settings.segmentation_min_area_ratio
-        <= area_ratio
-        <= settings.segmentation_max_area_ratio
-    ):
-        logger.info("SAM mask area ratio %.3f out of band; falling back.", area_ratio)
-        if region.used_selection:
-            mask = _full_bbox_mask((h, w), region)
-        else:
-            mask = np.full((h, w), 255, dtype=np.uint8)
-        result.provider = "opencv"
-        result.fallback_used = True
-        result.reason = "sam_area_out_of_band"
-        area_ratio = float(np.count_nonzero(mask)) / (total + 1e-9)
-
     result.mask = mask
     result.mask_available = True
-    result.mask_area_ratio = area_ratio
+    result.mask_area_ratio = float(np.count_nonzero(mask)) / (total + 1e-9)
     return result
 
 
-# --- Future hook ----------------------------------------------------------- #
+# --- Compatibility wrapper -------------------------------------------------- #
 def segment_with_sam(image: np.ndarray, region: GarmentRegion | None = None, garment_type=None):  # noqa: D401
-    """Thin wrapper kept for API compatibility / future FastSAM/SAM2 swap."""
+    """Run SAM directly (returns a full-image mask or None)."""
     from app.settings import settings as _settings
 
     if region is None:
         h, w = image.shape[:2]
         region = GarmentRegion(0, 0, w, h, used_selection=False, source="full_image")
-    return _sam_mask(image, region, _settings)
+    return get_sam_segmenter(_settings).segment(image, region)

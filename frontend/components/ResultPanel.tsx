@@ -137,8 +137,26 @@ export default function ResultPanel({
             服領域抽出: {result.debug.segmentation.provider}
             {result.debug.segmentation.fallback_used ? "（フォールバック）" : ""} ・ 面積比{" "}
             {(result.debug.segmentation.mask_area_ratio * 100).toFixed(0)}%
+            {result.debug.segmentation.device
+              ? ` ・ ${result.debug.segmentation.device}`
+              : ""}
+            {result.debug.segmentation.last_error
+              ? ` ・ ${result.debug.segmentation.last_error}`
+              : ""}
           </p>
         )}
+        {result.debug.line_filter &&
+          (result.debug.line_filter.raw_lines ?? 0) > 0 && (
+            <p className="hint">
+              線フィルタ: 検出 {result.debug.line_filter.raw_lines} → 採用{" "}
+              {result.debug.line_filter.kept_lines}（除外 mask{" "}
+              {result.debug.line_filter.removed_outside_mask ?? 0}, 境界{" "}
+              {result.debug.line_filter.removed_near_boundary ?? 0}, 端{" "}
+              {result.debug.line_filter.removed_touches_edge ?? 0}, 長{" "}
+              {result.debug.line_filter.removed_too_long ?? 0}, 短{" "}
+              {result.debug.line_filter.removed_too_short ?? 0}）
+            </p>
+          )}
         {result.debug.pose && (
           <p className="hint">
             姿勢: {result.debug.pose.detected ? result.debug.pose.provider : "未検出"}
@@ -149,12 +167,6 @@ export default function ResultPanel({
               : ""}
           </p>
         )}
-        {result.debug.removed_lines &&
-          Object.values(result.debug.removed_lines).some((v) => v > 0) && (
-            <p className="hint">
-              除外した線: {JSON.stringify(result.debug.removed_lines)}
-            </p>
-          )}
         <div className="scorebars" style={{ marginTop: 8 }}>
           {scoreEntries.map(([type, score]) => (
             <div className="bar-row" key={type}>

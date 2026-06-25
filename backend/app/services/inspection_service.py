@@ -78,6 +78,7 @@ def run_inspection(
     seg_debug: dict | None = None
     pose_debug: dict | None = None
     removed_lines: dict[str, int] = {}
+    line_filter: dict[str, int] = {}
     overlays: dict | None = None
     models_used = {
         "rule_engine": True,
@@ -121,7 +122,12 @@ def run_inspection(
             image_bgr, region, seg_mask=seg_mask, settings=settings
         )
         num_candidates = candidates.count
-        removed_lines = candidates.removed_lines or {}
+        line_filter = candidates.line_filter or {}
+        removed_lines = {
+            k.replace("removed_", ""): v
+            for k, v in line_filter.items()
+            if k.startswith("removed_")
+        }
 
         # image_shape enables advanced joint features; None -> basic joint rule.
         features = extract_features(
@@ -208,6 +214,7 @@ def run_inspection(
         models_used=models_used,
         capabilities=capabilities.get_capabilities(settings),
         removed_lines=removed_lines,
+        line_filter=line_filter,
         overlays=overlays,
     )
 

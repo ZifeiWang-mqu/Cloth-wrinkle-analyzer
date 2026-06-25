@@ -24,6 +24,7 @@ from app.schemas import (
 from app.services import capabilities, illustration_model
 from app.services.anomaly_model import describe_anomaly_model
 from app.services.reference_stats import load_density_stats
+from app.services.segmentation import sam_status
 from app.services.thresholds import load_thresholds
 from app.settings import settings
 
@@ -48,6 +49,7 @@ def model_status() -> ModelStatus:
         sam_available=bool(caps["segmentation"]["sam_available"]),
         sam_checkpoint_present=bool(caps["segmentation"]["sam_checkpoint_present"]),
         mediapipe_available=bool(caps["pose"]["mediapipe_available"]),
+        segmentation=sam_status(settings),
         illustration_feedback_model=illustration_model.describe(),
         version=__version__,
     )
@@ -65,12 +67,14 @@ def model_reload() -> dict:
     from app.services.anomaly_model import reset_anomaly_model_cache
     from app.services.illustration_model import reset_cache as reset_illu
     from app.services.reference_stats import reset_cache as reset_refstats
+    from app.services.segmentation import reset_sam_segmenter
     from app.services.thresholds import reset_cache as reset_thresholds
 
     reset_anomaly_model_cache()
     reset_thresholds()
     reset_refstats()
     reset_illu()
+    reset_sam_segmenter()
     return {"status": "reloaded"}
 
 

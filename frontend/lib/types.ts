@@ -80,6 +80,7 @@ export interface DebugInfo {
   models_used?: Record<string, boolean>;
   capabilities?: Record<string, unknown> | null;
   removed_lines?: Record<string, number>;
+  line_filter?: Record<string, number>;
   overlays?: Overlays | null;
 }
 
@@ -138,6 +139,18 @@ export interface ModelStatus {
   sam_available: boolean;
   sam_checkpoint_present: boolean;
   mediapipe_available: boolean;
+  segmentation?: {
+    enabled: boolean;
+    provider: string;
+    sam_available: boolean;
+    sam_loaded: boolean;
+    checkpoint_path: string | null;
+    checkpoint_exists: boolean;
+    model_type: string;
+    device: string;
+    fallback_provider: string;
+    last_error: string | null;
+  };
   illustration_feedback_model: {
     loaded: boolean;
     ready: boolean;

@@ -51,7 +51,7 @@ export default function Home() {
   const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
 
   const [options, setOptions] = useState<InspectOptions>({
-    use_segmentation: false,
+    use_segmentation: true, // SAM-MVP default (falls back if SAM unavailable)
     use_pose_advanced: true,
     use_illustration_model: true,
     return_debug_overlays: false,

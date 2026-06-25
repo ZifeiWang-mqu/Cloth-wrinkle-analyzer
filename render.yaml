@@ -1,0 +1,42 @@
+# Render Blueprint for the SAM-MVP backend (Dockerized FastAPI).
+# Frontend is deployed separately on Vercel (set NEXT_PUBLIC_API_BASE there).
+#
+# NOTE: SAM needs torch, so build the image with the build arg INSTALL_SAM=true.
+# Render does not set Docker build args from this file — set it in the service's
+# dashboard: Settings -> "Docker Build Arguments" -> INSTALL_SAM = true.
+# The SAM checkpoint is NOT in the image; place it on the mounted disk at
+# /var/data/models/sam/ (or use WRINKLE_SAM_AUTO_DOWNLOAD + WRINKLE_SAM_DOWNLOAD_URL).
+services:
+  - type: web
+    name: wrinkle-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: standard # SAM/torch needs memory; free/starter likely too small
+    healthCheckPath: /health
+    autoDeploy: false
+    disk:
+      name: wrinkle-data
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: WRINKLE_SEGMENTATION_PROVIDER
+        value: sam
+      - key: WRINKLE_ENABLE_AUTO_SEGMENTATION
+        value: "true"
+      - key: WRINKLE_SAM_CHECKPOINT_PATH
+        value: /var/data/models/sam/sam_vit_b_01ec64.pth
+      - key: WRINKLE_SAM_MODEL_TYPE
+        value: vit_b
+      - key: WRINKLE_SAM_DEVICE
+        value: cpu
+      - key: WRINKLE_SAM_LAZY_LOAD
+        value: "true"
+      - key: WRINKLE_SEGMENTATION_FALLBACK
+        value: manual_bbox
+      - key: WRINKLE_DATA_DIR
+        value: /var/data
+      # Set to your Vercel frontend URL (comma-separated allowed).
+      - key: WRINKLE_CORS_ORIGINS
+        sync: false

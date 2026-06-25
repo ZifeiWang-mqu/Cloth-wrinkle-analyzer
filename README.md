@@ -1,431 +1,497 @@
-# Illustration Wrinkle Inconsistency Detector
+# Cloth Wrinkle Analyzer
 
-イラスト中のキャラクター衣服に描かれた「非合理的な皺」を検知する作画支援アプリです。
-画像をアップロードし、服領域を選択すると、人体構造・重力・張力・立体・線密度・陰影の
-6 観点から皺の不整合を検査します。
+イラスト中のキャラクター衣服に描かれた「不自然な皺」を検出する、作画支援Webアプリです。  
+画像をアップロードし、服領域を指定すると、皺の方向・密度・人体構造との整合性などをもとに、修正候補を可視化します。
 
-> **このリポジトリの現状: バックエンド（FastAPI）+ フロントエンド（Next.js）+
-> 写真参照特徴スクリプト（`ml/`）の MVP が一通り揃っています。**
-> 高精度な異常検知（DINOv2 / Anomalib）と SAM による服領域自動抽出は次フェーズです。
+> 現在の状態: MVP  
+> FastAPIバックエンド、Next.jsフロントエンド、画像処理ベースの皺検出、フィードバック保存、評価スクリプト、外部ツール向けAPIを実装済みです。SAMによる服領域の補助抽出（手動選択を起点）、MediaPipeによる関節判定の高度化、フィードバックを使ったイラスト専用モデル学習は、拡張機能として段階的に追加する構成です。
 
 ---
 
-## 何ができるか（バックエンド MVP）
+## 機能
 
-- 画像アップロード（jpg / png / webp）と安全なファイル保存
-- 服領域の手動 bbox 指定（無ければ画像全体）
-- 古典的 CV パイプライン（前処理 → Canny → HoughLinesP → 構造特徴量）
-- 6 要件のルールベース・スコアリング（各 0.0〜1.0）
-- 日本語の説明文付き issue 生成・overall_score 算出
-- SQLite への検査履歴保存と**強化されたユーザーフィードバック**（image_id / issue_type /
-  original・corrected bbox / confidence / severity / source などを保存。`missed_issue` も追加可能）
-- MediaPipe Pose は任意（未インストールでも動作、`pose_detected=false`）
-- 学習済みワンクラス異常検知（マハラノビス距離）を任意で利用、未学習時はダミーに自動フォールバック
-- **issue_type / garment_type 別の判定閾値**（`backend/app/config/thresholds.json`）+ フロント表示閾値スライダー
-- **作画添削UI**: 検出枠の色分け（issue_type 別）・クリック選択・種類/重大度フィルタ・並び替え・見逃し手動追加
-- **外部ツール向けAPI**: `POST /api/inspect-base64`・`GET /api/model/status`・`GET /api/inspection/{id}`
-- **評価スクリプト** `ml/evaluate_illustration_results.py`（IoU で P/R/F1 を算出 → `reports/`）
+### MVPの主な機能
+
+- 画像アップロードによる皺検査
+- 手動bboxによる服領域指定
+- OpenCVベースの皺候補線抽出
+- 6種類のissue検出
+  - `gravity_inconsistency`: 重力方向と皺の流れの不整合
+  - `joint_inconsistency`: 関節の曲がり方と皺の不整合
+  - `tension_ambiguity`: 張力点が不明な皺
+  - `body_volume_inconsistency`: 体の立体構造と合わない皺
+  - `density_inconsistency`: 皺の密度の不自然さ
+  - `shadow_wrinkle_mismatch`: 皺線と陰影の不一致
+- issueごとのbbox、severity、confidence、説明文表示
+- issue type / severity / score threshold によるフィルタリング
+- ユーザーフィードバック保存
+  - `correct`
+  - `false_positive`
+  - `wrong_location`
+  - `wrong_reason`
+  - `missed_issue`
+- SQLiteによる検査履歴・フィードバック保存
+- 外部ツール向けbase64 API
+- Precision / Recall / F1を算出する評価スクリプト
+
+### 機械学習・解析機能
+
+- 実写服写真から皺特徴量を抽出
+- Mahalanobis距離によるone-class anomaly model
+- garment type別の正常パターンモデル
+- `reference_stats.json` による線密度基準
+- issue type / garment type別の判定閾値
+- 将来的なDINOv2 / PatchCore / イラスト専用モデルへの差し替えを想定した構成
+
+### 任意・実験的な拡張機能
+
+- SAMによる服領域の補助抽出（手動選択を起点）
+- MediaPipeによるpose推定
+- フィードバックを使ったイラスト専用モデル学習
+- Photoshop UXP Plugin連携
 
 ---
 
-## ディレクトリ構成
+## 技術スタック
 
-```
+| 領域 | 使用技術 |
+|---|---|
+| フロントエンド | Next.js 14, React, TypeScript |
+| バックエンド | FastAPI, Pydantic, SQLAlchemy, Uvicorn |
+| 画像処理 | OpenCV, NumPy, scikit-image |
+| 機械学習・評価 | NumPy, pandas, scikit-learn, joblib |
+| 任意AI機能 | SAM, MediaPipe |
+| データベース | SQLite |
+| テスト | pytest, ruff |
+
+---
+
+## プロジェクト構成
+
+```text
 .
 ├── backend/
 │   ├── app/
-│   │   ├── main.py            # FastAPI 本体 (/health, ルータ, CORS, 静的配信)
-│   │   ├── settings.py        # 設定 (環境変数 WRINKLE_* で上書き可)
-│   │   ├── schemas.py         # Pydantic スキーマ (API 契約)
-│   │   ├── config/thresholds.json   # issue_type/garment_type 別 判定閾値
+│   │   ├── main.py
+│   │   ├── settings.py
+│   │   ├── schemas.py
 │   │   ├── routes/
-│   │   │   ├── inspect.py     # POST /api/inspect-wrinkle, /api/inspect-base64
-│   │   │   ├── feedback.py    # POST /api/feedback (強化版)
-│   │   │   └── status.py      # GET /api/model/status, /api/inspection/{id}
 │   │   ├── services/
-│   │   │   ├── image_io.py        # アップロード/Base64 検証・デコード・保存
-│   │   │   ├── inspection_service.py # 検査パイプライン共通ロジック
-│   │   │   ├── segmentation.py    # 服領域決定 (将来 SAM)
-│   │   │   ├── pose.py            # MediaPipe Pose (任意)
-│   │   │   ├── wrinkle_edges.py   # 皺候補線の抽出
-│   │   │   ├── feature_extraction.py # 構造特徴量
-│   │   │   ├── rule_engine.py     # 6 要件スコア + 統合 + 閾値適用
-│   │   │   ├── thresholds.py      # thresholds.json ローダ
-│   │   │   ├── reference_stats.py # reference_stats.json ローダ (密度判定)
-│   │   │   ├── explanation.py     # 日本語説明文生成
-│   │   │   └── anomaly_model.py   # 異常検知 (Mahalanobis / dummy)
-│   │   └── db/                # database.py / models.py (Inspection / IssueFeedback)
-│   ├── tests/                 # pytest (rule engine + API + thresholds + anomaly)
-│   ├── requirements.txt
-│   └── pyproject.toml
-├── frontend/                  # Next.js 14 (App Router) + TypeScript
-│   ├── app/                   # layout.tsx / page.tsx / globals.css
-│   ├── components/            # Uploader / RegionSelector / Heatmap / Result / Feedback /
-│   │                          #   IssueControls / MissedIssueForm
-│   └── lib/                   # api.ts / types.ts
-├── ml/
-│   ├── extract_photo_features.py      # 写真→構造的参照特徴 (parquet + reference_stats)
-│   ├── train_anomaly_model.py         # 参照特徴→ anomaly_model.json
-│   ├── evaluate_illustration_results.py # IoU 評価 → reports/
-│   ├── configs/default.yaml
+│   │   └── db/
+│   ├── tests/
 │   └── requirements.txt
-├── data/                      # 画像・DB・特徴量・モデル (Git 管理外。下記参照)
-│   ├── illustrations_raw/     # ユーザー入力イラスト (アップロード保存先)
-│   ├── photos_raw/<garment>/  # 参照用の実写服写真
-│   ├── annotations/           # illustration_feedback.csv (評価アノテーション)
-│   ├── features/ models/ outputs/
-├── reports/                   # evaluation_report.md / evaluation_metrics.json
+├── frontend/
+│   ├── app/
+│   ├── components/
+│   └── lib/
+├── ml/
+│   ├── extract_photo_features.py
+│   ├── train_anomaly_model.py
+│   ├── evaluate_illustration_results.py
+│   └── configs/
+├── data/       # ローカルデータ用。Git管理外
+├── reports/    # 評価レポート出力用。Git管理外
 ├── docker-compose.yml
-├── README.md
-└── CLAUDE.md
+├── CLAUDE.md
+└── README.md
 ```
 
 ---
 
-### backend (Python 3.10+)
+## クイックスタート
+
+### 1. バックエンド
 
 ```bash
 cd backend
-python3 -m venv .venv && source .venv/bin/activate    
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-- ヘルスチェック: <http://localhost:8000/health>
-- OpenAPI ドキュメント: <http://localhost:8000/docs>
+バックエンドURL:
 
-> MediaPipe を使ったポーズ推定を有効にしたい場合のみ `pip install mediapipe`
-> を追加してください。未インストールでもアプリは動作します。
+```text
+http://localhost:8000
+```
 
-### frontend (Next.js)
+確認用エンドポイント:
+
+```text
+http://localhost:8000/health
+http://localhost:8000/docs
+http://localhost:8000/api/model/status
+```
+
+---
+
+### 2. フロントエンド
 
 ```bash
 cd frontend
 cp .env.local.example .env.local
 npm install
-npm run dev            # http://localhost:3000  (バックエンドを 8000 で起動しておく)
+npm run dev
 ```
 
-### 写真参照特徴の抽出 + 学習モデル (ml)
+フロントエンドURL:
 
-```bash
-cd ml
-pip install -r requirements.txt          # backend の依存も入ります
-# data/photos_raw/<garment>/ に写真を配置してから:
-python extract_photo_features.py         # 1) 構造的特徴を抽出
-#   -> data/features/photo_reference_features.parquet
-#   -> data/features/reference_stats.json
-python train_anomaly_model.py            # 2) ワンクラス異常検知を学習
-#   -> data/models/anomaly_model.json    （バックエンドが起動時に自動読み込み）
+```text
+http://localhost:3000
 ```
 
-> 学習モデルはマハラノビス距離ベースの簡易な one-class モデルで、numpy だけで
-> 動作します。`anomaly_model.json` が無い場合はヒューリスティックに自動フォールバック
-> します。データセット配置の規定と複数データセットの扱いは `ml/README.md` を参照。
+`frontend/.env.local` の例:
 
-### Docker
-
-```bash
-docker compose up --build
-# backend  -> http://localhost:8000/health
-# frontend -> http://localhost:3000
+```env
+NEXT_PUBLIC_API_BASE=http://localhost:8000
 ```
 
 ---
 
-## API
+## 参照モデルの学習
 
-### `POST /api/inspect-wrinkle`  (multipart/form-data)
+現在の異常検知モデルは、実写服写真から抽出した皺特徴量をもとに学習します。
 
-| field           | type            | 必須 | 説明 |
-|-----------------|-----------------|:---:|------|
-| `image`         | file            | ✓   | jpg / png / webp |
-| `garment_type`  | string          |     | shirt / skirt / pants / dress / jacket / unknown |
-| `selected_region` | JSON string   |     | `{"x":100,"y":200,"w":300,"h":400}` |
+### データセット配置
 
-レスポンス（抜粋）:
+参照用の実写服写真は、以下の形式で配置します。
 
-```json
-{
-  "inspection_id": "…",
-  "result": "ok | needs_review",
-  "overall_score": 0.0,
-  "issues": [
-    {
-      "id": "gravity_inconsistency-0",
-      "type": "gravity_inconsistency",
-      "label": "重力と皺の矛盾",
-      "severity": "low | medium | high",
-      "bbox": {"x": 0, "y": 0, "w": 0, "h": 0},
-      "confidence": 0.0,
-      "message": "日本語の説明文",
-      "score": 0.0,
-      "threshold": 0.72,
-      "flagged": true
-    }
-  ],
-  "debug": {
-    "pose_detected": false,
-    "garment_region_used": true,
-    "num_wrinkle_candidates": 0,
-    "processing_time_ms": 0,
-    "scores": { "gravity_inconsistency": 0.0, "...": 0.0 },
-    "notes": []
-  }
-}
+```text
+data/photos_raw/<garment>/<dataset_name>/image.jpg
 ```
 
-`curl` 例:
+使用できるgarment type:
+
+```text
+shirt
+skirt
+pants
+dress
+jacket
+```
+
+例:
+
+```text
+data/photos_raw/pants/openimages_v7_val/sample_001.jpg
+data/photos_raw/jacket/openimages_v7_val/sample_002.jpg
+```
+
+### 特徴量抽出
 
 ```bash
-curl -F "image=@your_illustration.png" \
-     -F "garment_type=skirt" \
-     -F 'selected_region={"x":40,"y":60,"w":200,"h":300}' \
-     http://localhost:8000/api/inspect-wrinkle
+python ml/extract_photo_features.py   --photos-root data/photos_raw   --masks-root data/photos_masks   --output-path data/features/photo_reference_features.parquet   --reference-stats-path data/features/reference_stats.json
 ```
 
-### `POST /api/inspect-base64`  (application/json) — 外部ツール / Photoshop 用
+parquet保存に必要なライブラリがない場合、CSVにフォールバックすることがあります。
 
-`/api/inspect-wrinkle` と**同じ結果形式**を返します（同じ inspection service を使用）。
+### 異常検知モデルの学習
+
+```bash
+python ml/train_anomaly_model.py   --features data/features/photo_reference_features.csv   --output data/models/anomaly_model.json
+```
+
+`data/models/anomaly_model.json` が存在する場合、バックエンドは起動時に自動で読み込みます。  
+モデルがない場合は、ルールベース判定にフォールバックします。
+
+---
+
+## API概要
+
+### `POST /api/inspect-wrinkle`
+
+multipart形式で画像を送信して検査します。
+
+| Field | Type | Required | Description |
+|---|---|:---:|---|
+| `image` | file | yes | jpg / png / webp |
+| `garment_type` | string | no | `shirt`, `skirt`, `pants`, `dress`, `jacket`, `unknown` |
+| `selected_region` | JSON string | no | `{"x":100,"y":200,"w":300,"h":400}` |
+
+例:
+
+```bash
+curl -F "image=@your_illustration.png"      -F "garment_type=skirt"      -F 'selected_region={"x":40,"y":60,"w":200,"h":300}'      http://localhost:8000/api/inspect-wrinkle
+```
+
+---
+
+### `POST /api/inspect-base64`
+
+Photoshop Pluginなどの外部ツールから利用しやすい、JSON形式の検査APIです。
 
 ```json
 {
-  "image_base64": "data:image/png;base64,iVBORw0K... または 生のbase64",
-  "garment_type": "shirt | skirt | pants | dress | jacket | unknown",
+  "image_base64": "data:image/png;base64,...",
+  "garment_type": "shirt",
   "selected_region": {"x": 0, "y": 0, "w": 100, "h": 100},
-  "source": "web | photoshop | external"
+  "source": "web"
 }
 ```
 
+---
+
 ### `GET /api/model/status`
+
+現在読み込まれているモデルや設定の状態を返します。
 
 ```json
 {
   "model_loaded": true,
   "model_type": "mahalanobis",
-  "model_path": "…/data/models/anomaly_model.json",
   "reference_stats_loaded": true,
-  "reference_stats_path": "…/data/features/reference_stats.json",
   "thresholds_loaded": true,
-  "thresholds_path": "…/backend/app/config/thresholds.json",
-  "available_garment_models": ["global", "shirt", "skirt", "pants", "dress", "jacket"],
-  "version": "0.1.0"
+  "available_garment_models": ["global", "shirt", "skirt", "pants", "dress", "jacket"]
 }
 ```
 
-### `GET /api/inspection/{id}`
+---
 
-過去の検査結果（issues / debug）と、その検査に紐づくフィードバック一覧を返します。
+### `POST /api/feedback`
 
-### `POST /api/feedback`  (application/json)
+ユーザーの修正・評価フィードバックを保存します。保存されたデータは、将来的な評価やイラスト専用モデルの学習に利用できます。
 
 ```json
 {
-  "inspection_id": "…",
-  "issue_id": "gravity_inconsistency-0",
-  "feedback": "correct | false_positive | missed_issue | wrong_location | wrong_reason",
-  "image_id": "eval_001.png",
+  "inspection_id": "...",
+  "issue_id": "joint_inconsistency-0",
+  "feedback": "false_positive",
   "garment_type": "shirt",
   "issue_type": "joint_inconsistency",
-  "original_bbox": {"x": 0, "y": 0, "w": 0, "h": 0},
-  "corrected_bbox": {"x": 0, "y": 0, "w": 0, "h": 0},
-  "corrected_type": "optional",
-  "confidence": 0.0,
-  "severity": "low | medium | high",
-  "source": "web | photoshop | external",
-  "comment": "optional"
+  "corrected_bbox": {"x": 120, "y": 200, "w": 80, "h": 60},
+  "comment": "この皺は自然な表現です。"
 }
 ```
 
-→ `{"status": "saved", "feedback_id": "…"}`
+---
 
-`missed_issue`（AIが見逃した不整合）は `issue_id` を省略し `corrected_bbox` と
-`issue_type` を指定して送ります。フィードバックは将来のイラスト専用データセット
-作成のため必ず保存されます。
+## 評価
 
-> **CORS**: 既定はフロント（localhost:3000）のみ許可。Photoshop UXP など非ブラウザ/
-> 不定オリジンから使う場合は環境変数 `WRINKLE_CORS_ALLOW_ALL=true` で全許可にできます。
+評価用アノテーションを以下に用意します。
+
+```text
+data/annotations/illustration_feedback.csv
+```
+
+評価スクリプトを実行します。
+
+```bash
+python ml/evaluate_illustration_results.py   --images-root data/illustrations_raw   --annotations data/annotations/illustration_feedback.csv   --output-md reports/evaluation_report.md   --output-json reports/evaluation_metrics.json   --iou-threshold 0.3
+```
+
+出力される主な評価内容:
+
+- Precision
+- Recall
+- F1
+- issue type別の評価指標
+- garment type別の評価指標
+- false positive一覧
+- false negative一覧
+- wrong location / wrong reasonの一覧
 
 ---
 
-## テスト
+## 任意機能: SAMによる服領域の補助抽出
+
+SAMは「服専用の分類器」ではなく、領域を補助する**プロンプト型のセグメンテーション**です。
+画像全体から服だけを自動で確実に切り出すものではありません（box promptの範囲内にある
+人物・肌・髪などを含むことがあります）。本アプリでは、ユーザーの手動選択を起点とした
+**領域の補助**として使います。
+
+推奨MVPフロー:
+
+1. ユーザーが服のおおよその範囲を手動で選択（bbox / なげなわ）
+2. その選択範囲をSAMの **box prompt** として使用
+3. SAMが選択範囲内で領域マスクを補助的に精緻化
+4. そのマスク内**だけ**で皺候補線を抽出（マスク外・境界付近・長すぎる輪郭線は除外）
+
+これにより、髪・輪郭線・背景線・ハッチングなどによる誤検出を減らせます。SAMが使えない場合や
+マスクが不安定（面積比が閾値外）な場合は、手動選択領域へ自動でフォールバックします。
+（服クラスそのものを切り出したい場合は、将来的にhuman parsing系モデルの併用を想定。）
+
+### ローカル設定
 
 ```bash
 cd backend
-pytest          # rule engine / 閾値 / 異常モデル / API (inspect・base64・status・feedback)
-ruff check .    # Lint
-
-cd ../frontend
-npx tsc --noEmit   # 型チェック（任意）
+source .venv/bin/activate
+pip install -r requirements-sam.txt
+mkdir -p ../data/models/sam
 ```
+
+SAM checkpointを以下に配置します。
+
+```text
+data/models/sam/sam_vit_b_01ec64.pth
+```
+
+環境変数を設定します。
+
+```bash
+export WRINKLE_SEGMENTATION_PROVIDER=sam
+export WRINKLE_ENABLE_AUTO_SEGMENTATION=true
+export WRINKLE_SAM_CHECKPOINT_PATH=../data/models/sam/sam_vit_b_01ec64.pth
+export WRINKLE_SAM_MODEL_TYPE=vit_b
+export WRINKLE_SAM_DEVICE=cpu
+```
+
+状態確認:
+
+```bash
+curl http://localhost:8000/api/model/status
+```
+
+> SAM checkpointファイルはGitHubにコミットしません。
+
+### デプロイ時の注意（SAM）
+
+- **メモリ**: vit_b をCPUで動かすには概ね **2〜4GB RAM** を見込んでください
+  （無料/極小インスタンスはOOMの恐れ）。
+- **ウォームアップ（任意）**: `WRINKLE_SAM_LAZY_LOAD=true` だと初回検査でモデルを
+  ロードするため最初のリクエストが遅くなります。プラットフォームのリクエスト
+  タイムアウトを避けたい場合は、起動直後に1回ダミー検査を投げてウォームアップしてください。
+- **チェックポイントの完全性**: `WRINKLE_SAM_AUTO_DOWNLOAD` を使う場合は、取得した
+  `.pth` のSHA-256などを検証してから利用してください（信頼できないファイルを
+  `torch.load` しない）。本番では事前にPersistent Diskへ配置する方法を推奨します。
 
 ---
 
-## データ管理と Git 除外（重要）
+## 任意機能: フィードバックを使ったイラスト専用モデル
 
-ユーザー入力イラスト・データセット・学習済みモデル・特徴量・出力は **GitHub に載せません**。
-`.gitignore` で以下を除外しています（`.gitkeep` でフォルダ骨格のみ保持）。
+保存されたフィードバックデータから、イラスト向けの学習データセットを作成できます。
 
-```
-data/illustrations_raw/  data/uploads/  data/outputs/
-data/photos_raw/  data/photos_masks/  data/features/  data/models/
-data/*.json  data/*.csv  data/*.parquet
-external/  .dataset_venv/  backend/.venv/  frontend/node_modules/  frontend/.next/
+```bash
+python ml/build_illustration_feedback_dataset.py   --db data/wrinkle.db   --images-root data/illustrations_raw   --output-root data/illustration_feedback_dataset
 ```
 
-- **実ファイルは削除されません**。ローカルの画像データはそのまま残ります。
-- **配置場所**:
-  - 参照用の実写写真 → `data/photos_raw/<garment>/<dataset_name>/...`
-  - ユーザー入力イラスト（評価対象・アップロード保存先）→ `data/illustrations_raw/`
-  - 評価アノテーション → `data/annotations/illustration_feedback.csv`
+軽量な分類器を学習します。
 
-### すでに Git に追加してしまった場合
+```bash
+python ml/train_illustration_feedback_model.py   --features data/illustration_feedback_dataset/features.csv   --output-model data/models/illustration_feedback_model.joblib
+```
 
-`.gitignore` の追加だけでは**追跡済みファイルは外れません**。次で追跡からのみ外します
-（`--cached` なのでローカルの実ファイルは消えません）。
+このモデルは、誤検出の削減や、イラスト特有の線画表現への適応を目的としています。
+
+---
+
+## デプロイ
+
+### 推奨MVPデプロイ構成
+
+| 項目 | 推奨 |
+|---|---|
+| フロントエンド | Vercel |
+| バックエンド | Render / Railway / Fly.io / Cloud Run |
+| モデルファイル | 永続ディスクまたはオブジェクトストレージ |
+| データベース | デモ用途はSQLite、本番用途はPostgreSQL推奨 |
+
+### 環境変数
+
+バックエンド:
+
+```env
+WRINKLE_CORS_ORIGINS=https://your-frontend.vercel.app
+WRINKLE_DATA_DIR=/var/data
+WRINKLE_SEGMENTATION_PROVIDER=sam
+WRINKLE_ENABLE_AUTO_SEGMENTATION=true
+WRINKLE_SAM_CHECKPOINT_PATH=/var/data/models/sam/sam_vit_b_01ec64.pth
+WRINKLE_SAM_MODEL_TYPE=vit_b
+WRINKLE_SAM_DEVICE=cpu
+```
+
+フロントエンド:
+
+```env
+NEXT_PUBLIC_API_BASE=https://your-backend.example.com
+```
+
+### Docker
+
+```bash
+docker compose up --build
+```
+
+SAM対応のバックエンドをビルドする場合:
+
+```bash
+docker build --build-arg INSTALL_SAM=true -t wrinkle-backend ./backend
+```
+
+SAM checkpointファイルはDocker imageに含めず、volume mountで渡してください。
+
+---
+
+## データとGit管理
+
+以下のファイル・ディレクトリはGitHubにコミットしません。
+
+```text
+data/illustrations_raw/
+data/uploads/
+data/outputs/
+data/photos_raw/
+data/photos_masks/
+data/features/
+data/models/
+data/segmentation_cache/
+data/*.json
+data/*.csv
+data/*.parquet
+models/
+*.pth
+*.pt
+*.onnx
+*.joblib
+reports/
+external/
+.dataset_venv/
+backend/.venv/
+frontend/node_modules/
+frontend/.next/
+```
+
+すでにローカルデータをGitに追加してしまった場合:
 
 ```bash
 git rm -r --cached data/illustrations_raw
 git rm -r --cached data/photos_raw
-git rm -r --cached data/photos_masks
 git rm -r --cached data/features
 git rm -r --cached data/models
-git rm -r --cached data/uploads
-git rm -r --cached data/outputs
-git commit -m "chore: stop tracking local data/models/features"
+git rm -r --cached reports
+git commit -m "chore: stop tracking generated files and local data"
 ```
 
-`git status` に `data/illustrations_raw/` 以下の画像が出なくなれば成功です。
+---
+
+## 現在の制限
+
+- 現在のMVPは、完全な深層学習ベースの検出器ではありません。
+- 精度は、服領域の指定精度に大きく影響されます。
+- 実写写真由来の参照特徴量は、イラスト線画と完全には一致しません。
+- SAMやMediaPipeは任意機能であり、スタイル化されたイラストでは失敗する場合があります。
+- フィードバック学習は、十分なラベル付きデータが集まるまでは効果が限定的です。
+- SQLiteはデモ用途には使えますが、本番環境でフィードバックを永続保存する場合はPostgreSQLなどの利用を推奨します。
 
 ---
 
-## 精度改善フロー
+## ロードマップ
 
-写真とイラストのドメイン差が大きいため、いきなり高精度は狙わず、計測 →
-修正データ蓄積 → 閾値調整 → 専用データ蓄積の順で進めます。
-
-1. **フィードバック保存**: UI で correct / false_positive / wrong_location /
-   wrong_reason を送信。AI が見逃した不整合は「見逃しの追加」から `missed_issue`
-   として bbox 付きで保存（将来のイラスト専用学習データ）。
-2. **評価**: `data/annotations/illustration_feedback.csv` を用意して評価スクリプトを実行。
-3. **閾値調整**: `backend/app/config/thresholds.json` で issue_type / garment_type 別の
-   判定閾値を調整して誤検出を抑制。フロントの「表示スコア閾値」スライダーは**表示側**の
-   フィルタで、バックエンド判定とは独立です。
-4. **イラスト専用データ蓄積**: 蓄積した feedback を将来モデル学習に利用。
-
-### 評価スクリプト
-
-```bash
-python ml/evaluate_illustration_results.py \
-  --images-root data/illustrations_raw \
-  --annotations data/annotations/illustration_feedback.csv \
-  --output-md reports/evaluation_report.md \
-  --output-json reports/evaluation_metrics.json \
-  --iou-threshold 0.3
-```
-
-- 予測（flagged issue）と正解アノテーションを **IoU** でマッチングし、全体 / issue_type 別 /
-  garment_type 別の **Precision / Recall / F1**、confidence 帯別の誤検出率、
-  FP / FN / wrong_location / wrong_reason 一覧を出力します。
-- `data/illustrations_raw` が空、または annotation CSV が無い場合は分かりやすく失敗し、
-  テンプレート（`data/annotations/illustration_feedback.csv.example`）を案内します。
+- 服パース（human parsing）による服クラス抽出の導入（SAMは領域補助）
+- MediaPipeによる関節判定の高度化
+- 蓄積フィードバックを使ったイラスト専用モデル学習
+- DINOv2 / PatchCoreによる異常検知
+- Photoshop UXP Plugin連携
+- モデルバージョン管理と評価ダッシュボード
 
 ---
 
-## 外部ツール連携 / Photoshop UXP（予定）
+## AI開発支援メモ
 
-将来構成: Photoshop UXP Plugin → `POST /api/inspect-base64` → FastAPI →
-検査エンジン → JSON → Photoshop パネルに bbox と説明を表示。
-
-このフェーズで対応済み: base64 入力 API、`GET /api/model/status`、CORS の明示設定、
-ファイル/base64 で同一の結果形式。Plugin 本体は次フェーズです。
+Claude Codeなどの開発エージェント向けの作業指針は [`CLAUDE.md`](./CLAUDE.md) を参照してください。
 
 ---
 
-## 高度な機能（SAM / 関節高度化 / フィードバック学習）
+## ライセンス
 
-3つの機能は**すべて任意**で、依存が無くても落ちません（自動フォールバック）。
-検査オプションは UI のチェックボックス、または API パラメータで切り替えます。
-
-### A. SAM による服領域自動抽出
-
-- 目的: 服以外の線（髪・輪郭・背景・ハッチング）を皺候補から除外して誤検出を減らす。
-- 使い方: UI の「服領域自動抽出」をON、または `use_segmentation=true`。
-- 依存: `pip install segment-anything torch torchvision` ＋ チェックポイント。
-  - 既定の探索先: `data/models/sam/*.pth`（または `WRINKLE_SAM_CHECKPOINT_PATH`）。
-  - モデル種別: `WRINKLE_SAM_MODEL_TYPE`（既定 `vit_b`）。
-- **チェックポイントは GitHub に載せません**（`.gitignore` に `*.pth` 等）。
-- フォールバック: SAM が無い場合は OpenCV 幾何フォールバック（なげなわ→その多角形、
-  矩形→その範囲、無指定→全体）。マスク内だけ Canny/Hough を採用し、マスク外・境界付近・
-  画像/領域端に接する線・長すぎる輪郭線を除外します（`debug.removed_lines`）。
-- レスポンス: `debug.segmentation = { enabled, provider, mask_available, mask_area_ratio, fallback_used, reason }`。
-
-### B. MediaPipe による関節判定の高度化
-
-- pose が取れる場合、肘/膝/腰の **関節角度・曲げ強度・圧縮側/伸び側** を推定し、
-  「圧縮側に皺が少ない」「曲げをまたぐ長い直線」などを `joint_inconsistency` に反映します。
-- pose 信頼度が低い/未検出の場合は従来の軽量ルールにフォールバックし、confidence を下げます。
-- 依存: `pip install mediapipe`（無くても動作）。`use_pose_advanced` で切り替え。
-- レスポンス: `debug.pose = { detected, provider, joint_contexts:[{joint_name, angle_degrees, bend_strength, confidence}] }`。
-
-### C. 蓄積フィードバックからのイラスト専用モデル学習
-
-```bash
-# 1) DB と画像から学習データセットを作成
-python ml/build_illustration_feedback_dataset.py \
-  --db data/wrinkle.db --images-root data/illustrations_raw \
-  --output-root data/illustration_feedback_dataset
-# 2) 軽量分類器（scikit-learn）を学習
-python ml/train_illustration_feedback_model.py \
-  --features data/illustration_feedback_dataset/features.csv \
-  --output-model data/models/illustration_feedback_model.joblib
-# 3) バックエンドで再読み込み（または再起動）
-curl -X POST http://localhost:8000/api/model/reload
-```
-
-- ラベル変換: correct/missed_issue/wrong_location/wrong_reason → valid_issue、false_positive → false_issue。
-- サンプル不足（既定 `MIN_FEEDBACK_TRAIN_SAMPLES=30`、各クラス3件以上）では学習を中止し、
-  `model/status` で `ready=false` を返します。推論時は未学習なら自動でスキップ。
-- 依存: `pip install scikit-learn joblib`（無くても他機能は動作）。
-- スコアは分離して返します:
-  `debug.model_scores = { rule_score, anomaly_score, illustration_model_score, final_score }`、
-  `debug.models_used = { rule_engine, photo_anomaly_model, illustration_feedback_model }`。
-
-### 追加 API オプション
-
-`POST /api/inspect-wrinkle`（form）/ `POST /api/inspect-base64`（JSON）共通:
-`use_segmentation`, `segmentation_provider`, `use_pose_advanced`,
-`use_illustration_model`, `return_debug_overlays`。既定値は従来動作を維持します。
-
-- `GET /api/model/status`: SAM/MediaPipe 可用性、illustration model の状態（件数・metrics）を追加。
-- `GET /api/debug/capabilities`: 依存ライブラリの可用性。
-- `POST /api/model/reload`: thresholds / anomaly / reference_stats / illustration model を再読込。
-
-### Git 管理（追加）
-
-`.gitignore` に `models/`, `*.pth`, `*.pt`, `*.onnx`, `*.joblib`,
-`data/segmentation_cache/`, `reports/` を追加済み。SAM チェックポイント・学習済み
-モデル・入力画像・特徴量・feedback 実データは GitHub に載せません。
-
----
-
-## 設計メモ
-
-- **構造的特徴のみを使用**: 写真とイラストのドメイン差が大きいため、色や質感ではなく
-  線方向・密度・収束・明暗勾配などの構造的特徴を抽出します（要件 2, 15）。
-- **落ちない設計**: 画像処理が失敗しても 200 を返し、`debug.notes` に理由を記録します。
-- **差し替え前提**: `anomaly_model.py` はインターフェース中心。`segmentation.py` は
-  SAM、`pose.py` は MediaPipe を後から差し込めます。
-- **しきい値は `settings.py`** に集約。写真 100 枚から作る `reference_stats` で
-  `score_line_density` を将来チューニングできます。
-
-## ロードマップ（未実装）
-
-- DINOv2 / Anomalib（PatchCore）による異常検知の本実装（`anomaly_model.py` を差し替え）
-- SAM による服領域自動抽出（`segmentation.py` の `segment_with_sam`）
-- MediaPipe を使った関節ルールの高度化（pose 検出時の圧縮側/伸び側の判定）
-- Photoshop UXP Plugin 本体の実装
-- 蓄積した feedback を使ったイラスト専用モデルの学習
-
-> 注: `reference_stats.json` の密度判定への接続、issue_type/garment 別閾値、評価スクリプト、
-> base64/status API、作画添削UI は本フェーズで実装済みです。
+ライセンスはまだ設定していません。

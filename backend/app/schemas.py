@@ -96,6 +96,7 @@ class DebugInfo(BaseModel):
     models_used: dict[str, bool] = Field(default_factory=dict)
     capabilities: dict | None = None
     removed_lines: dict[str, int] = Field(default_factory=dict)
+    line_filter: dict[str, int] = Field(default_factory=dict)
     overlays: dict | None = None  # only when return_debug_overlays=true
 
 
@@ -115,7 +116,7 @@ class InspectBase64Request(BaseModel):
     garment_type: str | None = None
     # Either a polygon {"points": [[x, y], ...]} (lasso) or a rect {x, y, w, h}.
     selected_region: dict | None = None
-    use_segmentation: bool = False
+    use_segmentation: bool = True
     segmentation_provider: str | None = None
     use_pose_advanced: bool = True
     use_illustration_model: bool = True
@@ -174,6 +175,7 @@ class ModelStatus(BaseModel):
     sam_available: bool = False
     sam_checkpoint_present: bool = False
     mediapipe_available: bool = False
+    segmentation: dict = Field(default_factory=dict)
     illustration_feedback_model: dict = Field(default_factory=dict)
     version: str
 

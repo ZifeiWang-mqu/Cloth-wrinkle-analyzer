@@ -28,11 +28,19 @@ export default function InspectionOptions({
   const set = (k: keyof InspectOptions, v: boolean) =>
     onChange({ ...options, [k]: v });
 
+  const seg = status?.segmentation;
   const segLabel = status
     ? status.sam_available && status.sam_checkpoint_present
-      ? "服領域自動抽出（SAM）"
-      : "服領域自動抽出（簡易）"
-    : "服領域自動抽出";
+      ? "服領域補助抽出（SAM）"
+      : "服領域補助抽出（簡易）"
+    : "服領域補助抽出";
+  const segStatus = seg
+    ? seg.provider === "sam" && seg.sam_available && seg.checkpoint_exists
+      ? `SAMが選択範囲内の服領域抽出を補助（${seg.device}${seg.sam_loaded ? "・loaded" : "・lazy"}）`
+      : seg.sam_available && !seg.checkpoint_exists
+        ? "SAMチェックポイント未配置のため、手動/簡易領域を使用します"
+        : "服領域の補助抽出が利用できないため、手動で選択した領域を使用します"
+    : "";
   const poseNote = status && !status.mediapipe_available ? "（MediaPipe未導入→簡易）" : "";
   const illu = status?.illustration_feedback_model;
   const illuReady = !!illu?.ready;
@@ -53,6 +61,17 @@ export default function InspectionOptions({
         />
         {segLabel}
       </label>
+      {options.use_segmentation && (
+        <div className="hint" style={{ marginLeft: 24 }}>
+          SAMは服専用の分類器ではありません。服のおおよその範囲を選択すると、その範囲内でマスクを補助します。
+        </div>
+      )}
+      {options.use_segmentation && segStatus && (
+        <div className="hint" style={{ marginLeft: 24 }}>
+          {segStatus}
+          {seg?.last_error ? ` ・ ${seg.last_error}` : ""}
+        </div>
+      )}
       <label className="opt">
         <input
           type="checkbox"

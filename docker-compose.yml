@@ -2,7 +2,10 @@
 # Backend (FastAPI) + Frontend (Next.js dev server).
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./backend
+      args:
+        INSTALL_SAM: "false" # set "true" to build the SAM-MVP image (installs torch)
     ports:
       - "8000:8000"
     volumes:
@@ -11,7 +14,13 @@ services:
     environment:
       # Persist DB + uploads on the mounted ./data volume.
       WRINKLE_DATA_DIR: /data
-      WRINKLE_CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+      WRINKLE_CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      # SAM-MVP: set provider=sam and place a checkpoint under ./data/models/sam/
+      WRINKLE_SEGMENTATION_PROVIDER: opencv
+      WRINKLE_ENABLE_AUTO_SEGMENTATION: "true"
+      WRINKLE_SAM_CHECKPOINT_PATH: /data/models/sam/sam_vit_b_01ec64.pth
+      WRINKLE_SAM_DEVICE: cpu
+      WRINKLE_SAM_LAZY_LOAD: "true"
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:

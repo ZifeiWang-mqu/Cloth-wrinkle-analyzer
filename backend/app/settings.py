@@ -41,11 +41,8 @@ class Settings(BaseSettings):
     allowed_extensions: tuple[str, ...] = (".jpg", ".jpeg", ".png", ".webp")
     max_upload_bytes: int = 15 * 1024 * 1024  # 15 MB
 
-    # --- CORS (Next.js dev server defaults) ---
-    cors_origins: tuple[str, ...] = (
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    )
+    # --- CORS (comma-separated origins; env: WRINKLE_CORS_ORIGINS) ---
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     # Allow any origin (for Photoshop UXP / external tools). Disables credentials.
     cors_allow_all: bool = False
 
@@ -69,6 +66,11 @@ class Settings(BaseSettings):
     segmentation_provider: str = "opencv"  # "none" | "sam" | "opencv"
     sam_checkpoint_path: str = ""  # absolute or relative; empty -> data/models/sam/
     sam_model_type: str = "vit_b"
+    sam_device: str = "cpu"  # "cpu" | "cuda" (falls back to cpu if no GPU)
+    sam_lazy_load: bool = True  # load SAM on first use instead of at startup
+    sam_download_url: str = ""  # optional checkpoint download URL
+    sam_auto_download: bool = False  # download checkpoint at runtime if missing
+    segmentation_fallback: str = "manual_bbox"  # "manual_bbox" | "whole_image"
     segmentation_min_area_ratio: float = 0.02
     segmentation_max_area_ratio: float = 0.85
     # Drop lines whose midpoint is within this fraction of the diagonal of the
@@ -81,6 +83,10 @@ class Settings(BaseSettings):
     # Weight of the illustration model in the final score (only when ready).
     illustration_model_weight: float = 0.25
     min_feedback_train_samples: int = 30
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
     @property
     def upload_dir(self) -> Path:

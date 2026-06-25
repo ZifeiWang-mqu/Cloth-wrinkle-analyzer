@@ -5,6 +5,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 
 import type { BBox, Issue, Overlays, RegionPolygon } from "@/lib/types";
 import HeatmapOverlay from "./HeatmapOverlay";
+import MaskOverlay from "./MaskOverlay";
 
 // Pose skeleton bone connections (landmark name pairs).
 const BONES: [string, string][] = [
@@ -250,21 +251,7 @@ export default function RegionSelector({
 
       {/* Debug overlays (segmentation mask, pose skeleton, candidate lines) */}
       {showMask && overlays?.mask_png && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={overlays.mask_png}
-          alt="服マスク"
-          style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            width: display.w,
-            height: display.h,
-            opacity: 0.3,
-            pointerEvents: "none",
-            mixBlendMode: "screen",
-          }}
-        />
+        <MaskOverlay src={overlays.mask_png} width={display.w} height={display.h} />
       )}
       {(showPose || showLines) && (
         <svg

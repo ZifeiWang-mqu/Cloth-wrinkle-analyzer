@@ -69,7 +69,7 @@ class WrinkleCandidates:
     # otherwise the crop area. Used for density normalisation.
     area_px: float = 0.0
     mask: np.ndarray | None = None  # uint8 0/255 combined mask (crop frame)
-    removed_lines: dict[str, int] = field(default_factory=dict)  # filter -> count
+    line_filter: dict[str, int] = field(default_factory=dict)  # raw/kept/removed_*
 
     @property
     def count(self) -> int:
@@ -113,13 +113,26 @@ def _filter_lines(
     mask: np.ndarray | None,
     crop_shape: tuple[int, int],
     settings,
+    min_len: float,
 ) -> tuple[list[WrinkleLine], dict[str, int]]:
-    """Drop lines that are likely NOT wrinkles (outline/edge/contour)."""
+    """Drop lines that are likely NOT wrinkles (outline/edge/contour).
+
+    Returns the kept lines and a ``line_filter`` debug dict with raw/kept and
+    per-reason removed counts.
+    """
     h, w = crop_shape
     diag = math.hypot(h, w)
-    removed = {"outside_mask": 0, "near_boundary": 0, "touches_edge": 0, "too_long": 0}
+    lf = {
+        "raw_lines": len(lines),
+        "kept_lines": 0,
+        "removed_outside_mask": 0,
+        "removed_near_boundary": 0,
+        "removed_touches_edge": 0,
+        "removed_too_long": 0,
+        "removed_too_short": 0,
+    }
     if not lines:
-        return [], removed
+        return [], lf
 
     dist = None
     margin = 0.0
@@ -127,17 +140,21 @@ def _filter_lines(
         dist = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
         margin = float(getattr(settings, "mask_boundary_margin_ratio", 0.0) or 0.0) * diag
     max_len = 0.9 * diag
+    short_len = 0.4 * float(min_len)
 
     kept: list[WrinkleLine] = []
     for ln in lines:
+        if ln.length < short_len:
+            lf["removed_too_short"] += 1
+            continue
         mx, my = ln.midpoint
         mxi = int(min(max(0, mx), w - 1))
         myi = int(min(max(0, my), h - 1))
         if mask is not None and mask[myi, mxi] == 0:
-            removed["outside_mask"] += 1
+            lf["removed_outside_mask"] += 1
             continue
         if dist is not None and margin > 0 and dist[myi, mxi] < margin:
-            removed["near_boundary"] += 1
+            lf["removed_near_boundary"] += 1
             continue
         if (
             min(ln.x1, ln.x2) <= 1
@@ -145,13 +162,14 @@ def _filter_lines(
             or max(ln.x1, ln.x2) >= w - 2
             or max(ln.y1, ln.y2) >= h - 2
         ):
-            removed["touches_edge"] += 1
+            lf["removed_touches_edge"] += 1
             continue
         if ln.length > max_len:
-            removed["too_long"] += 1
+            lf["removed_too_long"] += 1
             continue
         kept.append(ln)
-    return kept, removed
+    lf["kept_lines"] = len(kept)
+    return kept, lf
 
 
 def extract_wrinkle_candidates(
@@ -213,7 +231,7 @@ def extract_wrinkle_candidates(
                 x1, y1, x2, y2 = (float(v) for v in seg)
                 lines.append(WrinkleLine(x1, y1, x2, y2))
 
-        lines, removed = _filter_lines(lines, mask, (h, w), settings)
+        lines, line_filter = _filter_lines(lines, mask, (h, w), settings, min_len)
 
         area_px = float(np.count_nonzero(mask)) if mask is not None else float(h * w)
         return WrinkleCandidates(
@@ -225,7 +243,7 @@ def extract_wrinkle_candidates(
             crop_shape=(h, w),
             area_px=area_px,
             mask=mask,
-            removed_lines=removed,
+            line_filter=line_filter,
         )
 
     except Exception as exc:  # pragma: no cover - defensive

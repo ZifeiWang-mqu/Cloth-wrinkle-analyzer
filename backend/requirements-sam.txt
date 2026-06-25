@@ -1,0 +1,14 @@
+# Optional SAM (Segment Anything) dependencies — install for the SAM-MVP.
+#   pip install -r requirements-sam.txt
+#
+# torch is large (CPU wheel ~200MB+). For a CPU-only deploy you may prefer the
+# CPU index:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+#
+# The SAM checkpoint itself is NOT installed here and is NOT committed to git.
+# Place it on a persistent disk and set WRINKLE_SAM_CHECKPOINT_PATH, or set
+# WRINKLE_SAM_AUTO_DOWNLOAD=true + WRINKLE_SAM_DOWNLOAD_URL. See README.
+
+torch>=2.0
+torchvision>=0.15
+segment-anything>=1.0

@@ -50,7 +50,7 @@ async def inspect_wrinkle(
     image: UploadFile = File(...),
     garment_type: str | None = Form(None),
     selected_region: str | None = Form(None),
-    use_segmentation: bool = Form(False),
+    use_segmentation: bool = Form(True),
     segmentation_provider: str | None = Form(None),
     use_pose_advanced: bool = Form(True),
     use_illustration_model: bool = Form(True),
