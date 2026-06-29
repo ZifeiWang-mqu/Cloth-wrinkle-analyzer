@@ -56,6 +56,7 @@ def _load_backend():
     from app.services.feature_extraction import extract_features
     from app.services.pose import estimate_pose
     from app.services.reference_stats import load_density_stats
+    from app.services.region_geometry import RegionGeometry
     from app.services.rule_engine import integrate_scores
     from app.services.segmentation import get_garment_region
     from app.services.thresholds import load_thresholds
@@ -71,6 +72,7 @@ def _load_backend():
         "get_garment_region": get_garment_region,
         "load_thresholds": load_thresholds,
         "extract_wrinkle_candidates": extract_wrinkle_candidates,
+        "RegionGeometry": RegionGeometry,
         "settings": settings,
     }
 
@@ -85,12 +87,12 @@ def inspect_image(be: dict, image, garment: str) -> list[dict]:
     features = be["extract_features"](candidates, pose)
     anomaly = be["get_anomaly_model"]().score(features, garment)
     ih, iw = image.shape[:2]
-    region_context = {
-        "bbox": region.as_dict(),
-        "image_w": iw,
-        "image_h": ih,
-        "region_diag": math.hypot(region.w, region.h),
-    }
+    region_geometry = be["RegionGeometry"](
+        bbox=region.as_dict(),
+        image_w=iw,
+        image_h=ih,
+        region_diag=math.hypot(region.w, region.h),
+    )
     settings = be["settings"]
     thresholds = be["load_thresholds"](settings.thresholds_path)
     density_stats, _ = be["load_density_stats"](settings.reference_stats_path)
@@ -98,7 +100,7 @@ def inspect_image(be: dict, image, garment: str) -> list[dict]:
         features,
         garment,
         pose,
-        region_context,
+        region_geometry,
         settings,
         reference_stats=density_stats,
         anomaly_score=anomaly,

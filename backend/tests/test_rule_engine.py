@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.schemas import IssueType
 from app.services.feature_extraction import Features
 from app.services.pose import PoseResult
+from app.services.region_geometry import RegionGeometry
 from app.services.rule_engine import (
     integrate_scores,
     run_all_scores,
@@ -14,12 +15,12 @@ from app.services.rule_engine import (
 )
 from app.settings import settings
 
-REGION_CTX = {
-    "bbox": {"x": 0, "y": 0, "w": 200, "h": 400},
-    "image_w": 200,
-    "image_h": 400,
-    "region_diag": 447.0,
-}
+REGION_CTX = RegionGeometry(
+    bbox={"x": 0, "y": 0, "w": 200, "h": 400},
+    image_w=200,
+    image_h=400,
+    region_diag=447.0,
+)
 
 
 def _vertical_drape() -> Features:

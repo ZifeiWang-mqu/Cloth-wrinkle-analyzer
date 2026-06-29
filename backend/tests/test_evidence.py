@@ -10,9 +10,10 @@ from app.services.evidence import (
 )
 from app.services.feature_extraction import Features
 from app.services.pose import PoseResult
+from app.services.region_geometry import RegionGeometry
 from app.services.wrinkle_edges import WrinkleCandidates, WrinkleLine
 
-REGION = {"bbox": {"x": 0, "y": 0, "w": 200, "h": 200}}
+REGION = RegionGeometry(bbox={"x": 0, "y": 0, "w": 200, "h": 200})
 
 
 def test_line_to_box_and_clamp():
@@ -63,6 +64,6 @@ def test_total_box_cap():
         {"type": "gravity_inconsistency", "bbox": {"x": 0, "y": 0, "w": 400, "h": 400}, "score": 0.8},
         {"type": "body_volume_inconsistency", "bbox": {"x": 0, "y": 0, "w": 400, "h": 400}, "score": 0.7},
     ]
-    build_evidence_for_issues(issues, cand, Features(num_lines=len(lines)), PoseResult(), {"bbox": {"x": 0, "y": 0, "w": 400, "h": 400}}, (400, 400))
+    build_evidence_for_issues(issues, cand, Features(num_lines=len(lines)), PoseResult(), RegionGeometry(bbox={"x": 0, "y": 0, "w": 400, "h": 400}), (400, 400))
     total = sum(len(i["evidence_boxes"]) for i in issues)
     assert total <= 24

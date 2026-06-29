@@ -16,6 +16,7 @@ import numpy as np
 
 from app.services.feature_extraction import Features
 from app.services.pose import PoseResult
+from app.services.region_geometry import RegionGeometry
 from app.services.wrinkle_edges import WrinkleCandidates, WrinkleLine
 
 MAX_BOXES_PER_ISSUE = 4
@@ -205,14 +206,14 @@ def build_evidence_for_issues(
     candidates: WrinkleCandidates | None,
     features: Features,
     pose: PoseResult,
-    region_context: dict,
+    geometry: RegionGeometry,
     image_shape: tuple[int, int],
 ) -> list[dict]:
     """Attach an ``evidence_boxes`` list to each issue dict (in place)."""
     ih, iw = image_shape
     diag = math.hypot(iw, ih)
     pad = _padding(iw, ih)
-    region_bbox = region_context.get("bbox", {"x": 0, "y": 0, "w": iw, "h": ih})
+    region_bbox = dict(geometry.bbox)
     region_area = max(1.0, float(region_bbox.get("w", iw)) * float(region_bbox.get("h", ih)))
     lines = list(candidates.lines) if candidates else []
     ox, oy = candidates.offset if candidates else (0, 0)

@@ -18,6 +18,7 @@ from app.schemas import IssueType, Severity
 from app.services.explanation import generate_explanation, label_for
 from app.services.feature_extraction import Features
 from app.services.pose import PoseResult
+from app.services.region_geometry import RegionGeometry
 
 # Rough default density expectations (line_count_density = lines per 10k px).
 # Replaced later by stats computed from the 100-photo reference set.
@@ -64,15 +65,15 @@ def _smoothstep(edge0: float, edge1: float, x: float) -> float:
     return t * t * (3 - 2 * t)
 
 
-def _region_bbox(region_context: dict) -> dict[str, float]:
-    return dict(region_context.get("bbox", {"x": 0, "y": 0, "w": 1, "h": 1}))
+def _region_bbox(geometry: RegionGeometry) -> dict[str, float]:
+    return dict(geometry.bbox)
 
 
 # --------------------------------------------------------------------------- #
 # 8.1 Gravity
 # --------------------------------------------------------------------------- #
 def score_gravity_inconsistency(
-    features: Features, garment_type: str, region_context: dict
+    features: Features, garment_type: str, geometry: RegionGeometry
 ) -> ScoreResult:
     if features.num_lines < 3:
         return ScoreResult(0.0, 0.1, detail="few_lines")
@@ -109,7 +110,7 @@ def _score_joint_basic(
 
 
 def score_joint_inconsistency(
-    features: Features, pose_landmarks: PoseResult, region_context: dict
+    features: Features, pose_landmarks: PoseResult, geometry: RegionGeometry
 ) -> ScoreResult:
     """Advanced joint rule using bend direction (compression vs stretch).
 
@@ -206,12 +207,12 @@ def _point_bbox(cx: float, cy: float, size: float = 60.0) -> dict[str, float]:
 # 8.4 Body volume
 # --------------------------------------------------------------------------- #
 def score_body_volume_inconsistency(
-    features: Features, pose_landmarks: PoseResult, region_context: dict
+    features: Features, pose_landmarks: PoseResult, geometry: RegionGeometry
 ) -> ScoreResult:
     if features.num_lines < 3:
         return ScoreResult(0.0, 0.1, detail="few_lines")
 
-    diag = float(region_context.get("region_diag", 0.0)) or 1.0
+    diag = float(geometry.region_diag) or 1.0
     # Ruler-straight, parallel wrinkles ignore curved volume.
     straightness = _smoothstep(0.7, 0.15, features.orientation_dispersion)
     long_factor = _smoothstep(0.25, 0.75, features.mean_line_length / diag)
@@ -228,7 +229,7 @@ def score_body_volume_inconsistency(
 def score_line_density(
     features: Features,
     garment_type: str,
-    region_context: dict,
+    geometry: RegionGeometry,
     reference_stats: dict | None = None,
 ) -> ScoreResult:
     stats = reference_stats or DEFAULT_DENSITY_STATS
@@ -297,25 +298,25 @@ def run_all_scores(
     features: Features,
     garment_type: str,
     pose: PoseResult,
-    region_context: dict,
+    geometry: RegionGeometry,
     reference_stats: dict | None = None,
 ) -> dict[IssueType, ScoreResult]:
     """Run the six scorers and return a mapping of type -> ScoreResult."""
     return {
         IssueType.gravity_inconsistency: score_gravity_inconsistency(
-            features, garment_type, region_context
+            features, garment_type, geometry
         ),
         IssueType.joint_inconsistency: score_joint_inconsistency(
-            features, pose, region_context
+            features, pose, geometry
         ),
         IssueType.tension_ambiguity: score_tension_ambiguity(
             features, pose, garment_type
         ),
         IssueType.body_volume_inconsistency: score_body_volume_inconsistency(
-            features, pose, region_context
+            features, pose, geometry
         ),
         IssueType.density_inconsistency: score_line_density(
-            features, garment_type, region_context, reference_stats
+            features, garment_type, geometry, reference_stats
         ),
         IssueType.shadow_wrinkle_mismatch: score_shadow_wrinkle_mismatch(
             features, None, features.estimated_light_angle
@@ -327,7 +328,7 @@ def integrate_scores(
     features: Features,
     garment_type: str,
     pose: PoseResult,
-    region_context: dict,
+    geometry: RegionGeometry,
     settings,
     reference_stats: dict | None = None,
     anomaly_score: float = 0.0,
@@ -345,8 +346,8 @@ def integrate_scores(
 
     Returns: ``issues``, ``overall_score``, ``result``, ``scores``.
     """
-    results = run_all_scores(features, garment_type, pose, region_context, reference_stats)
-    region_bbox = _region_bbox(region_context)
+    results = run_all_scores(features, garment_type, pose, geometry, reference_stats)
+    region_bbox = _region_bbox(geometry)
     floor = float(getattr(settings, "min_report_score", settings.issue_threshold))
 
     def _effective(issue_type_value: str) -> float:

@@ -31,6 +31,7 @@ from app.services.feature_extraction import extract_features
 from app.services.illustration_model import get_illustration_model, is_ready
 from app.services.pose import estimate_pose, get_joint_contexts
 from app.services.reference_stats import load_density_stats
+from app.services.region_geometry import RegionGeometry
 from app.services.rule_engine import integrate_scores
 from app.services.segmentation import get_garment_region, segment_garment
 from app.services.thresholds import load_thresholds
@@ -145,12 +146,12 @@ def run_inspection(
                 illustration_score = model.score(features.to_dict(), garment)
                 models_used["illustration_feedback_model"] = illustration_score is not None
 
-        region_context = {
-            "bbox": region.as_dict(),
-            "image_w": iw,
-            "image_h": ih,
-            "region_diag": math.hypot(region.w, region.h),
-        }
+        region_geometry = RegionGeometry(
+            bbox=region.as_dict(),
+            image_w=iw,
+            image_h=ih,
+            region_diag=math.hypot(region.w, region.h),
+        )
         thresholds = load_thresholds(settings.thresholds_path)
         density_stats, _ = load_density_stats(settings.reference_stats_path)
 
@@ -158,7 +159,7 @@ def run_inspection(
             features,
             garment,
             pose,
-            region_context,
+            region_geometry,
             settings,
             reference_stats=density_stats,
             anomaly_score=anomaly_score,
@@ -173,7 +174,7 @@ def run_inspection(
 
         # Attach precise local evidence boxes (small JSON; no images).
         build_evidence_for_issues(
-            issues, candidates, features, pose, region_context, (ih, iw)
+            issues, candidates, features, pose, region_geometry, (ih, iw)
         )
 
         if not pose.detected:

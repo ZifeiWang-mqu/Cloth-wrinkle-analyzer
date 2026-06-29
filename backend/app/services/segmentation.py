@@ -167,12 +167,27 @@ def _full_bbox_mask(shape: tuple[int, int], region: GarmentRegion) -> np.ndarray
     return mask
 
 
+@dataclass
+class SegmentResult:
+    """Uniform return type for every ``Segmenter.segment()`` implementation.
+
+    ``mask`` is a full-image uint8 0/255 mask (or None when segmentation could
+    not produce one); ``reason`` is a short tag describing how the mask was
+    derived (e.g. "sam", "user_polygon", "manual_bbox", "whole_image") or why it
+    is absent. Having one shape lets ``segment_garment`` treat any segmenter the
+    same way without branching on the concrete class.
+    """
+
+    mask: np.ndarray | None = None
+    reason: str | None = None
+
+
 class BaseSegmenter:
     name = "base"
 
     def segment(
         self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
-    ) -> np.ndarray | None:
+    ) -> SegmentResult:
         raise NotImplementedError
 
 
@@ -186,15 +201,13 @@ class FallbackSegmenter(BaseSegmenter):
 
     def segment(
         self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
-    ) -> tuple[np.ndarray, str]:
+    ) -> SegmentResult:
         h, w = image.shape[:2]
         if region.polygon and len(region.polygon) >= 3:
-            return _full_polygon_mask((h, w), region.polygon), "user_polygon"
+            return SegmentResult(_full_polygon_mask((h, w), region.polygon), "user_polygon")
         if region.used_selection:
-            return _full_bbox_mask((h, w), region), "manual_bbox"
-        if self.settings.segmentation_fallback == "manual_bbox" and region.used_selection:
-            return _full_bbox_mask((h, w), region), "manual_bbox"
-        return np.full((h, w), 255, dtype=np.uint8), "whole_image"
+            return SegmentResult(_full_bbox_mask((h, w), region), "manual_bbox")
+        return SegmentResult(np.full((h, w), 255, dtype=np.uint8), "whole_image")
 
 
 class SamSegmenter(BaseSegmenter):
@@ -277,9 +290,9 @@ class SamSegmenter(BaseSegmenter):
 
     def segment(
         self, image: np.ndarray, region: GarmentRegion, garment_type: str | None = None
-    ) -> np.ndarray | None:
+    ) -> SegmentResult:
         if not self.load():
-            return None
+            return SegmentResult(mask=None, reason=None)  # last_error holds the cause
         try:
             rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             self._predictor.set_image(rgb)
@@ -289,13 +302,13 @@ class SamSegmenter(BaseSegmenter):
             )
             masks, scores, _ = self._predictor.predict(box=box, multimask_output=True)
             if masks is None or len(masks) == 0:
-                return None
+                return SegmentResult(mask=None, reason="sam_no_mask")
             best = masks[int(np.argmax(scores))]
-            return (best.astype(np.uint8)) * 255
+            return SegmentResult(mask=(best.astype(np.uint8)) * 255, reason="sam")
         except Exception as exc:  # pragma: no cover - optional / env dependent
             self.last_error = str(exc)
             logger.warning("SAM segmentation failed: %s", exc)
-            return None
+            return SegmentResult(mask=None, reason=None)
 
     def status(self) -> dict:
         cp = self.settings.resolved_sam_checkpoint
@@ -372,9 +385,10 @@ def segment_garment(
 
     if provider == "sam":
         seg = get_sam_segmenter(settings)
-        mask = seg.segment(image, region)
+        sr = seg.segment(image, region)
         result.device = seg.device
         result.last_error = seg.last_error
+        mask = sr.mask
         if mask is not None:
             ar = float(np.count_nonzero(mask)) / (total + 1e-9)
             if not (
@@ -392,10 +406,10 @@ def segment_garment(
             result.reason = result.reason or (seg.last_error or "sam_unavailable")
 
     if mask is None:
-        fb = FallbackSegmenter(settings)
-        mask, fb_reason = fb.segment(image, region)
+        sr = FallbackSegmenter(settings).segment(image, region)
+        mask = sr.mask
         result.provider = "opencv"
-        result.reason = result.reason or fb_reason
+        result.reason = result.reason or sr.reason
         if provider == "sam":
             result.fallback_used = True
 
@@ -411,11 +425,13 @@ def segment_garment(
 
 
 # --- Compatibility wrapper -------------------------------------------------- #
-def segment_with_sam(image: np.ndarray, region: GarmentRegion | None = None, garment_type=None):  # noqa: D401
+def segment_with_sam(
+    image: np.ndarray, region: GarmentRegion | None = None, garment_type=None
+) -> np.ndarray | None:  # noqa: D401
     """Run SAM directly (returns a full-image mask or None)."""
     from app.settings import settings as _settings
 
     if region is None:
         h, w = image.shape[:2]
         region = GarmentRegion(0, 0, w, h, used_selection=False, source="full_image")
-    return get_sam_segmenter(_settings).segment(image, region)
+    return get_sam_segmenter(_settings).segment(image, region).mask
