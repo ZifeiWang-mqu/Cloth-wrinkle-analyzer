@@ -12,23 +12,28 @@ import IssueControls, {
 import MissedIssueForm from "@/components/MissedIssueForm";
 import RegionSelector from "@/components/RegionSelector";
 import ResultPanel from "@/components/ResultPanel";
-import { getModelStatus, inspectWrinkle, sendFeedback } from "@/lib/api";
+import { getModelStatus, inspectHand, inspectWrinkle, sendFeedback } from "@/lib/api";
 import {
   type BBox,
   type FeedbackKind,
   GARMENT_OPTIONS,
   type GarmentType,
+  HAND_TYPES,
+  INFORMATIONAL_TYPES,
+  type InspectMode,
   type InspectOptions,
   type InspectResponse,
   type IssueType,
   type ModelStatus,
   type RegionPolygon,
   TYPE_LABELS,
+  WRINKLE_TYPES,
 } from "@/lib/types";
 
 const ALL_TYPES = Object.keys(TYPE_LABELS) as IssueType[];
 
 export default function Home() {
+  const [mode, setMode] = useState<InspectMode>("wrinkle");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [garmentType, setGarmentType] = useState<GarmentType>("unknown");
@@ -94,7 +99,10 @@ export default function Home() {
     setLoading(true);
     setError(null);
     try {
-      const res = await inspectWrinkle(file, garmentType, region, options);
+      const res =
+        mode === "hand"
+          ? await inspectHand(file, region)
+          : await inspectWrinkle(file, garmentType, region, options);
       setResult(res);
       setSelectedIssueId(null);
       setRegionEditMode(false);
@@ -103,6 +111,17 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleModeChange(next: InspectMode) {
+    if (next === mode) return;
+    setMode(next);
+    // Results/selection belong to the previous mode — clear to avoid mixing.
+    setResult(null);
+    setSelectedIssueId(null);
+    setError(null);
+    setAddMode(false);
+    setRegionEditMode(true);
   }
 
   function handleReset() {
@@ -145,7 +164,7 @@ export default function Home() {
       issue_id: issueId,
       feedback: kind,
       image_id: file?.name ?? null,
-      garment_type: garmentType,
+      garment_type: mode === "hand" ? "hand" : garmentType,
       issue_type: issue?.type ?? null,
       original_bbox: issue?.bbox ?? null,
       confidence: issue?.confidence ?? null,
@@ -161,7 +180,7 @@ export default function Home() {
       inspection_id: result.inspection_id,
       feedback: "missed_issue",
       image_id: file?.name ?? null,
-      garment_type: garmentType,
+      garment_type: mode === "hand" ? "hand" : garmentType,
       issue_type: issueType,
       corrected_bbox: draftIssueBox,
       source: "web",
@@ -176,12 +195,15 @@ export default function Home() {
       ? "region"
       : "off";
 
+  const activeTypes: IssueType[] = mode === "hand" ? HAND_TYPES : WRINKLE_TYPES;
+
   const filteredIssues = useMemo(() => {
     if (!result) return [];
     const arr = result.issues.filter(
       (i) =>
         visibleTypes.has(i.type) &&
-        i.score >= displayThreshold &&
+        // informational statuses (e.g. hand_detection_failed) always show
+        (i.score >= displayThreshold || INFORMATIONAL_TYPES.includes(i.type)) &&
         (severityFilter === "all" || i.severity === severityFilter),
     );
     arr.sort((a, b) =>
@@ -194,9 +216,9 @@ export default function Home() {
     <main className="app">
       <header className="app-header">
         <div>
-          <h1>イラスト皺チェッカー</h1>
+          <h1>イラスト作画チェッカー</h1>
           <div className="subtitle">
-            衣服の皺が重力・関節・張力・立体・密度・陰影と整合しているか検査します（結果は可能性の提示です）。
+            衣服の皺（重力・関節・張力・立体・密度・陰影）と手の不自然さを検査します（結果は可能性の提示です）。
           </div>
         </div>
         {modelStatus && (
@@ -214,34 +236,64 @@ export default function Home() {
           <h2>1. 画像と設定</h2>
           <ImageUploader onFile={handleFile} disabled={loading} />
 
-          <label className="field" htmlFor="garment">
-            服の種類
-          </label>
-          <select
-            id="garment"
-            value={garmentType}
-            onChange={(e) => setGarmentType(e.target.value as GarmentType)}
-            disabled={loading}
-          >
-            {GARMENT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <label className="field">検査モード</label>
+          <div className="overlay-controls" role="radiogroup" aria-label="検査モード">
+            <button
+              type="button"
+              className={`chip${mode === "wrinkle" ? " selected" : ""}`}
+              onClick={() => handleModeChange("wrinkle")}
+              disabled={loading}
+            >
+              服の皺
+            </button>
+            <button
+              type="button"
+              className={`chip${mode === "hand" ? " selected" : ""}`}
+              onClick={() => handleModeChange("hand")}
+              disabled={loading}
+            >
+              手（Hands）
+            </button>
+          </div>
 
-          <label className="field">検査オプション</label>
-          <InspectionOptions
-            options={options}
-            onChange={setOptions}
-            status={modelStatus}
-            hasOverlays={!!result?.debug.overlays}
-            showMask={showMask}
-            showPose={showPose}
-            showLines={showLines}
-            onToggleOverlay={toggleOverlay}
-            disabled={loading}
-          />
+          {mode === "wrinkle" ? (
+            <>
+              <label className="field" htmlFor="garment">
+                服の種類
+              </label>
+              <select
+                id="garment"
+                value={garmentType}
+                onChange={(e) => setGarmentType(e.target.value as GarmentType)}
+                disabled={loading}
+              >
+                {GARMENT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+
+              <label className="field">検査オプション</label>
+              <InspectionOptions
+                options={options}
+                onChange={setOptions}
+                status={modelStatus}
+                hasOverlays={!!result?.debug.overlays}
+                showMask={showMask}
+                showPose={showPose}
+                showLines={showLines}
+                onToggleOverlay={toggleOverlay}
+                disabled={loading}
+              />
+            </>
+          ) : (
+            <p className="hint" style={{ marginTop: 10 }}>
+              手の不自然さ（関節角度・指の長さ・親指の位置など）を検査します。
+              なげなわで手のおおよその範囲を囲むと検出しやすくなります。
+              ※検出器は写真学習ベースのため、イラストでは検出に失敗することがあります。
+            </p>
+          )}
 
           {file && (
             <div className="region-tools">
@@ -253,7 +305,13 @@ export default function Home() {
                   setAddMode(false);
                 }}
               >
-                {regionEditMode ? "服領域: 選択中" : "服領域を選び直す"}
+                {mode === "hand"
+                  ? regionEditMode
+                    ? "手の範囲: 選択中"
+                    : "手の範囲を選び直す"
+                  : regionEditMode
+                    ? "服領域: 選択中"
+                    : "服領域を選び直す"}
               </button>
               {region && (
                 <span className="hint">
@@ -286,7 +344,7 @@ export default function Home() {
               <hr className="sep" />
               <h2>2. 表示フィルタ</h2>
               <IssueControls
-                allTypes={ALL_TYPES}
+                allTypes={activeTypes}
                 visibleTypes={visibleTypes}
                 onToggleType={toggleType}
                 severityFilter={severityFilter}
@@ -298,6 +356,8 @@ export default function Home() {
               />
               <hr className="sep" />
               <MissedIssueForm
+                key={mode}
+                types={activeTypes}
                 addMode={addMode}
                 draftBox={draftIssueBox}
                 onToggleAddMode={() => {
@@ -369,7 +429,9 @@ export default function Home() {
               {addMode
                 ? "ドラッグで見逃し範囲を指定 → 左の「見逃しとして送信」"
                 : regionEditMode
-                  ? "なぞって服領域を囲みます（ロープツール・任意。指を離すと確定）。"
+                  ? mode === "hand"
+                    ? "なぞって手の範囲を囲みます（任意。囲むと検出精度が上がります）。"
+                    : "なぞって服領域を囲みます（ロープツール・任意。指を離すと確定）。"
                   : "検出枠（番号付き）をクリックすると詳細が右に表示されます。"}
             </p>
           )}

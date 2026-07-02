@@ -9,11 +9,18 @@ import {
   TYPE_LABELS,
 } from "@/lib/types";
 import FeedbackButtons from "./FeedbackButtons";
+import ReviewPanel from "./ReviewPanel";
 
 const SCORE_LABELS: Record<string, string> = {
   ...TYPE_LABELS,
   anomaly_model: "異常スコア（学習モデル）",
 };
+
+// Informational status: the detector found no hand, so no anomaly score was
+// computed — score/threshold must not be displayed as if it were an evaluation.
+function isHandDetectionFailure(issue: Issue): boolean {
+  return issue.category === "hand" && issue.type === "hand_detection_failed";
+}
 
 interface Props {
   result: InspectResponse;
@@ -35,6 +42,7 @@ export default function ResultPanel({
   onFeedback,
 }: Props) {
   const review = result.result === "needs_review";
+  const hand = result.debug.hand;
   const scoreEntries = Object.entries(result.debug.scores);
   const selected = result.issues.find((i) => i.id === selectedIssueId) || null;
 
@@ -48,12 +56,28 @@ export default function ResultPanel({
           <span className={`badge ${review ? "review" : "ok"}`}>
             {review ? "要確認の可能性あり" : "目立つ問題なし"}
           </span>
-          <div className="hint">総合スコア（1.0 に近いほど要確認）</div>
+          <div className="hint">
+            {hand ? "異常スコア（1.0 に近いほど要確認）" : "総合スコア（1.0 に近いほど要確認）"}
+          </div>
         </div>
       </div>
 
-      {/* Score breakdown (rule / anomaly / illustration / final) */}
-      {result.debug.model_scores && (
+      {/* Hand-mode summary (always visible, even with zero issues) */}
+      {hand && (
+        <p className="hint" style={{ marginBottom: 10 }}>
+          手の検出: {hand.detected ? `${hand.num_hands}件` : "なし"}
+          {hand.detected && hand.confidences.length > 0
+            ? ` ・ 信頼度 ${hand.confidences
+                .map((c) => `${(c * 100).toFixed(0)}%`)
+                .join(", ")}`
+            : ""}
+          {hand.backend && hand.backend !== "none" ? ` ・ ${hand.backend}` : ""}
+        </p>
+      )}
+
+      {/* Score breakdown (rule / anomaly / illustration / final) — wrinkle mode */}
+      {result.debug.model_scores &&
+        Object.keys(result.debug.model_scores).length > 0 && (
         <div className="score-breakdown">
           {(
             [
@@ -74,6 +98,13 @@ export default function ResultPanel({
         </div>
       )}
 
+      {/* Per-inspection review (feeds the review-memory layer) */}
+      <ReviewPanel
+        key={result.inspection_id}
+        inspectionId={result.inspection_id}
+        mode={hand ? "hand" : "wrinkle"}
+      />
+
       {/* Selected issue detail */}
       {selected && (
         <div
@@ -89,11 +120,27 @@ export default function ResultPanel({
             </button>
           </div>
           <div className="meta">
-            重大度 {SEVERITY_LABELS[selected.severity]} ・ 信頼度{" "}
-            {(selected.confidence * 100).toFixed(0)}% ・ スコア{" "}
-            {selected.score.toFixed(2)}（閾値 {selected.threshold.toFixed(2)}）
-            {selected.flagged ? "" : " ・ 参考"}
+            {isHandDetectionFailure(selected) ? (
+              <>
+                重大度 {SEVERITY_LABELS[selected.severity]} ・ 検出信頼度{" "}
+                {(selected.confidence * 100).toFixed(0)}% ・ 採点不可
+                {selected.flagged ? "" : " ・ 参考"}
+              </>
+            ) : (
+              <>
+                重大度 {SEVERITY_LABELS[selected.severity]} ・ 信頼度{" "}
+                {(selected.confidence * 100).toFixed(0)}% ・{" "}
+                {selected.category === "hand" ? "異常スコア" : "スコア"}{" "}
+                {selected.score.toFixed(2)}（閾値 {selected.threshold.toFixed(2)}）
+                {selected.flagged ? "" : " ・ 参考"}
+              </>
+            )}
           </div>
+          {isHandDetectionFailure(selected) && (
+            <p className="hint">
+              手を検出できなかったため、異常スコアは算出されませんでした。
+            </p>
+          )}
           <p className="message">{selected.message}</p>
           <FeedbackButtons issueId={selected.id} onSubmit={onFeedback} />
         </div>
@@ -101,7 +148,11 @@ export default function ResultPanel({
 
       {/* Issue list */}
       {issues.length === 0 ? (
-        <p className="hint">表示条件に合う検出はありません（閾値やフィルタを調整してください）。</p>
+        <p className="hint">
+          {hand && hand.detected && result.issues.length === 0
+            ? "手は検出されました。現在のルールでは異常は検出されませんでした。"
+            : "表示条件に合う検出はありません（閾値やフィルタを調整してください）。"}
+        </p>
       ) : (
         <div className="issue-list">
           {issues.map((issue, i) => {
@@ -189,6 +240,8 @@ export default function ResultPanel({
               num_wrinkle_candidates: result.debug.num_wrinkle_candidates,
               processing_time_ms: result.debug.processing_time_ms,
               notes: result.debug.notes,
+              // 手検査時のみ: 検出状態・特徴量・ルールごとの判定理由
+              ...(result.debug.hand ? { hand: result.debug.hand } : {}),
             },
             null,
             2,

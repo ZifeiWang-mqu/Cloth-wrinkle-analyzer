@@ -24,8 +24,11 @@ from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.db.database import init_db
+from app.routes import ai_review as ai_review_routes
 from app.routes import feedback as feedback_routes
 from app.routes import inspect as inspect_routes
+from app.routes import inspect_hand as inspect_hand_routes
+from app.routes import review as review_routes
 from app.routes import status as status_routes
 from app.settings import settings
 
@@ -84,7 +87,10 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(inspect_routes.router)
+    app.include_router(inspect_hand_routes.router)
     app.include_router(feedback_routes.router)
+    app.include_router(review_routes.router)
+    app.include_router(ai_review_routes.router)
     app.include_router(status_routes.router)
     return app
 
