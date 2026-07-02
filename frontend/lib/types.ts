@@ -193,6 +193,45 @@ export interface FeedbackResponse {
   feedback_id: string;
 }
 
+// --- 検査全体レビュー（review memory 用） --------------------------------- //
+export type UserVerdict = "correct" | "false_positive" | "false_negative" | "unclear";
+
+export const VERDICT_OPTIONS: { value: UserVerdict; label: string }[] = [
+  { value: "correct", label: "正しい" },
+  { value: "false_positive", label: "誤検出" },
+  { value: "false_negative", label: "見逃し" },
+  { value: "unclear", label: "わからない" },
+];
+
+// 手モードのレビュー専用修正ラベル（検出器のissueタイプより広い語彙。
+// バックエンドの HAND_REVIEW_ONLY_LABELS と対応）
+export const HAND_REVIEW_LABELS: { value: string; label: string }[] = [
+  { value: "missing_finger", label: "Missing finger" },
+  { value: "extra_digit_like_shape", label: "Extra digit-like shape" },
+  { value: "merged_fingers", label: "Merged fingers" },
+  { value: "malformed_fingertip", label: "Malformed fingertip" },
+  { value: "distorted_hand_shape", label: "Distorted hand shape" },
+  { value: "detector_missed_hand", label: "Detector missed the hand" },
+  { value: "other", label: "Other" },
+];
+
+export interface ReviewRequest {
+  inspection_id: string;
+  user_verdict: UserVerdict;
+  corrected_issue_type?: string | null;
+  user_comment?: string | null;
+  include_debug_snapshot?: boolean;
+  include_image_crop?: boolean;
+}
+
+export interface ReviewResponse {
+  status: string;
+  review_id: string;
+  memory_id: string;
+  mode: string;
+  summary_text: string;
+}
+
 export interface ModelStatus {
   model_loaded: boolean;
   model_type: string;

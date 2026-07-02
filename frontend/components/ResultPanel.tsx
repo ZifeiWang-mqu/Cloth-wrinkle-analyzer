@@ -9,6 +9,7 @@ import {
   TYPE_LABELS,
 } from "@/lib/types";
 import FeedbackButtons from "./FeedbackButtons";
+import ReviewPanel from "./ReviewPanel";
 
 const SCORE_LABELS: Record<string, string> = {
   ...TYPE_LABELS,
@@ -96,6 +97,13 @@ export default function ResultPanel({
           })}
         </div>
       )}
+
+      {/* Per-inspection review (feeds the review-memory layer) */}
+      <ReviewPanel
+        key={result.inspection_id}
+        inspectionId={result.inspection_id}
+        mode={hand ? "hand" : "wrinkle"}
+      />
 
       {/* Selected issue detail */}
       {selected && (

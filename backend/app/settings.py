@@ -7,6 +7,7 @@ tune without touching business logic.
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
 
@@ -78,6 +79,14 @@ class Settings(BaseSettings):
     # Path to hand_landmarker.task (env: WRINKLE_HAND_MODEL_PATH).
     # Empty -> auto-discover under data/models/hand/. Model is git-ignored.
     hand_model_path: str = ""
+
+    # --- AI visual review (OpenAI; OPTIONAL, server-side only) ---
+    # Key: WRINKLE_OPENAI_API_KEY, falling back to plain OPENAI_API_KEY.
+    # Never exposed to the frontend; never logged.
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    ai_review_max_image_px: int = 768  # crop is resized so max side <= this
+    ai_review_timeout_s: float = 60.0
     # Drop lines whose midpoint is within this fraction of the diagonal of the
     # mask boundary (likely garment outline, not a wrinkle). 0 disables.
     mask_boundary_margin_ratio: float = 0.015
@@ -156,6 +165,11 @@ class Settings(BaseSettings):
             for task in sorted(self.hand_models_dir.glob("*.task")):
                 return task
         return None
+
+    @property
+    def resolved_openai_key(self) -> str:
+        """WRINKLE_OPENAI_API_KEY, falling back to the conventional OPENAI_API_KEY."""
+        return self.openai_api_key or os.getenv("OPENAI_API_KEY", "")
 
     @property
     def illustration_model_path(self) -> Path:

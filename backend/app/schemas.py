@@ -204,6 +204,188 @@ class FeedbackResponse(BaseModel):
 
 
 # --------------------------------------------------------------------------- #
+# Review memory (per-inspection review + retrieval foundation)
+# --------------------------------------------------------------------------- #
+class UserVerdict(str, Enum):
+    correct = "correct"
+    false_positive = "false_positive"
+    false_negative = "false_negative"
+    unclear = "unclear"
+
+
+# Review-only correction labels: broader than the detector's issue types so
+# users can label problems the app cannot detect yet (esp. hand false
+# negatives). These are NOT inspection issue types — they exist only in
+# review memory.
+HAND_REVIEW_ONLY_LABELS: frozenset[str] = frozenset(
+    {
+        "missing_finger",
+        "extra_digit_like_shape",
+        "merged_fingers",
+        "malformed_fingertip",
+        "distorted_hand_shape",
+        "detector_missed_hand",
+        "other",
+    }
+)
+
+# Everything a review may use as corrected_issue_type: detector types (both
+# families) plus the review-only labels above.
+ALLOWED_CORRECTION_LABELS: frozenset[str] = frozenset(
+    {t.value for t in IssueType}
+    | {t.value for t in HandIssueType}
+    | HAND_REVIEW_ONLY_LABELS
+)
+
+
+class ReviewRequest(BaseModel):
+    """Save a per-inspection review. The snapshot is built SERVER-SIDE from the
+    stored Inspection row — client debug data is never trusted."""
+
+    inspection_id: str
+    user_verdict: UserVerdict
+    corrected_issue_type: str | None = None
+    user_comment: str | None = None
+    include_debug_snapshot: bool = True
+    # This pass stores only the flag + existing image path reference;
+    # no crop files are created.
+    include_image_crop: bool = False
+
+    @field_validator("user_comment")
+    @classmethod
+    def _trim_review_comment(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None
+
+    @field_validator("corrected_issue_type")
+    @classmethod
+    def _validate_correction_label(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            return None
+        if v not in ALLOWED_CORRECTION_LABELS:
+            raise ValueError(
+                f"unknown corrected_issue_type '{v}'; allowed: detector issue "
+                "types or review-only labels "
+                f"({', '.join(sorted(HAND_REVIEW_ONLY_LABELS))})"
+            )
+        return v
+
+
+class ReviewResponse(BaseModel):
+    status: str = "saved"
+    review_id: str
+    memory_id: str
+    mode: str  # "hand" | "wrinkle"
+    summary_text: str
+
+
+class MemorySearchRequest(BaseModel):
+    """Search similar reviewed cases by inspection or free text."""
+
+    inspection_id: str | None = None
+    query_text: str | None = None
+    mode: str | None = None  # filter; inferred from inspection when omitted
+    verdict: str | None = None
+    top_k: int = Field(5, ge=1, le=50)
+
+
+class MemoryCase(BaseModel):
+    memory_id: str
+    feedback_id: str
+    mode: str
+    verdict: str
+    issue_type: str | None = None
+    summary_text: str
+    similarity: float
+
+
+class MemorySearchResponse(BaseModel):
+    query_summary: str
+    cases: list[MemoryCase] = Field(default_factory=list)
+
+
+# --------------------------------------------------------------------------- #
+# AI visual review (optional GPT second opinion on top of the detector)
+# --------------------------------------------------------------------------- #
+VISUAL_PROBLEM_TYPES: tuple[str, ...] = (
+    "missing_finger",
+    "extra_digit_like_shape",
+    "merged_fingers",
+    "malformed_fingertip",
+    "distorted_hand_shape",
+    "unnatural_wrinkle",
+    "shadow_wrinkle_mismatch",
+    "unclear",
+    "other",
+)
+
+
+class AIReviewRequest(BaseModel):
+    inspection_id: str
+    mode: str | None = None  # "hand" | "wrinkle"; inferred when omitted
+    region: BBox | None = None  # explicit crop override (original-image px)
+    language: str = "ja"  # output language for free-text fields
+
+    @field_validator("language")
+    @classmethod
+    def _normalize_language(cls, v: str) -> str:
+        return v if v in ("ja", "en") else "ja"
+
+
+class VisualProblem(BaseModel):
+    type: str
+    description: str
+    confidence: float = 0.0
+
+    @field_validator("type")
+    @classmethod
+    def _coerce_type(cls, v: str) -> str:
+        return v if v in VISUAL_PROBLEM_TYPES else "other"
+
+    @field_validator("confidence", mode="before")
+    @classmethod
+    def _clamp_confidence(cls, v) -> float:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return 0.0
+        if 1.0 < f <= 100.0:  # tolerate percentage-style outputs
+            f = f / 100.0
+        return max(0.0, min(1.0, f))
+
+
+class AIReviewCrop(BaseModel):
+    x: float
+    y: float
+    w: float
+    h: float
+    source: str  # "request_region" | "selected_region" | "issue_bbox" | "full_image"
+
+
+class AIReviewMeta(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    model: str
+    mode: str
+    language: str
+    crop: AIReviewCrop
+
+
+class AIReviewResponse(BaseModel):
+    summary: str
+    detected_visual_problems: list[VisualProblem] = Field(default_factory=list)
+    detector_comparison: str
+    recommended_action: str
+    limitations: str
+    meta: AIReviewMeta
+
+
+# --------------------------------------------------------------------------- #
 # Model status / inspection detail (external tools)
 # --------------------------------------------------------------------------- #
 class ModelStatus(BaseModel):

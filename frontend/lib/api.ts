@@ -8,6 +8,8 @@ import type {
   InspectResponse,
   ModelStatus,
   RegionPolygon,
+  ReviewRequest,
+  ReviewResponse,
 } from "./types";
 
 export const API_BASE =
@@ -92,6 +94,16 @@ export async function sendFeedback(
   });
   if (!res.ok) throw new Error(await parseError(res));
   return (await res.json()) as FeedbackResponse;
+}
+
+export async function saveReview(payload: ReviewRequest): Promise<ReviewResponse> {
+  const res = await fetch(`${API_BASE}/api/review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as ReviewResponse;
 }
 
 export async function getModelStatus(): Promise<ModelStatus> {
