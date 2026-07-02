@@ -7,6 +7,15 @@ import type { BBox, Issue, Overlays, RegionPolygon } from "@/lib/types";
 import HeatmapOverlay from "./HeatmapOverlay";
 import MaskOverlay from "./MaskOverlay";
 
+// Hand skeleton connections (MediaPipe 21-landmark index pairs).
+const HAND_BONES: [number, number][] = [
+  [0, 1], [1, 2], [2, 3], [3, 4], // thumb
+  [0, 5], [5, 6], [6, 7], [7, 8], // index
+  [5, 9], [9, 10], [10, 11], [11, 12], // middle
+  [9, 13], [13, 14], [14, 15], [15, 16], // ring
+  [13, 17], [17, 18], [18, 19], [19, 20], [0, 17], // pinky + palm edge
+];
+
 // Pose skeleton bone connections (landmark name pairs).
 const BONES: [string, string][] = [
   ["left_shoulder", "right_shoulder"],
@@ -297,6 +306,38 @@ export default function RegionSelector({
                 />
               );
             })}
+          {showPose &&
+            overlays?.hand_landmarks?.map((hand, hi) => (
+              <g key={`hand-${hi}`}>
+                {HAND_BONES.map(([a, b], i) => {
+                  const pa = hand[a];
+                  const pb = hand[b];
+                  if (!pa || !pb) return null;
+                  return (
+                    <line
+                      key={`hb-${hi}-${i}`}
+                      x1={pa[0] * scale}
+                      y1={pa[1] * scale}
+                      x2={pb[0] * scale}
+                      y2={pb[1] * scale}
+                      stroke="#ff5da2"
+                      strokeWidth={1.5}
+                      opacity={0.9}
+                    />
+                  );
+                })}
+                {hand.map((p, i) => (
+                  <circle
+                    key={`hp-${hi}-${i}`}
+                    cx={p[0] * scale}
+                    cy={p[1] * scale}
+                    r={2.5}
+                    fill="#ff5da2"
+                    opacity={0.9}
+                  />
+                ))}
+              </g>
+            ))}
         </svg>
       )}
 

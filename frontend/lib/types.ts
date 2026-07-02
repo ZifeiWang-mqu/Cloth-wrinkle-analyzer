@@ -8,13 +8,52 @@ export type GarmentType =
   | "jacket"
   | "unknown";
 
-export type IssueType =
+export type WrinkleIssueType =
   | "gravity_inconsistency"
   | "joint_inconsistency"
   | "tension_ambiguity"
   | "body_volume_inconsistency"
   | "density_inconsistency"
   | "shadow_wrinkle_mismatch";
+
+export type HandIssueType =
+  | "joint_angle_anomaly"
+  | "finger_length_anomaly"
+  | "thumb_position_anomaly"
+  | "wrist_connection_anomaly"
+  | "finger_overlap_anomaly"
+  | "low_confidence_hand"
+  | "hand_detection_failed";
+
+export type IssueType = WrinkleIssueType | HandIssueType;
+
+// 検査モード（服の皺 / 手）
+export type InspectMode = "wrinkle" | "hand";
+
+export const WRINKLE_TYPES: WrinkleIssueType[] = [
+  "gravity_inconsistency",
+  "joint_inconsistency",
+  "tension_ambiguity",
+  "body_volume_inconsistency",
+  "density_inconsistency",
+  "shadow_wrinkle_mismatch",
+];
+
+export const HAND_TYPES: HandIssueType[] = [
+  "joint_angle_anomaly",
+  "finger_length_anomaly",
+  "thumb_position_anomaly",
+  "wrist_connection_anomaly",
+  "finger_overlap_anomaly",
+  "low_confidence_hand",
+  "hand_detection_failed",
+];
+
+// 参考表示（スコア閾値を無視して常に表示する情報系タイプ）
+export const INFORMATIONAL_TYPES: IssueType[] = [
+  "low_confidence_hand",
+  "hand_detection_failed",
+];
 
 export type Severity = "low" | "medium" | "high";
 
@@ -44,7 +83,8 @@ export interface EvidenceBox {
 export interface Issue {
   id: string;
   type: IssueType;
-  label: string; // 日本語表示名
+  category?: "wrinkle" | "hand" | string; // 検査ファミリー（backend既定は"wrinkle"）
+  label: string; // 表示名（皺=日本語 / 手=英語MVP）
   severity: Severity;
   bbox: BBox;
   confidence: number;
@@ -58,6 +98,7 @@ export interface Issue {
 export interface Overlays {
   candidate_lines?: number[][]; // [x1,y1,x2,y2] full-image coords
   pose_landmarks?: Record<string, [number, number]>;
+  hand_landmarks?: [number, number][][]; // per hand: 21 [x,y] full-image px
   mask_png?: string; // data URL
 }
 
@@ -97,6 +138,16 @@ export interface DebugInfo {
   removed_lines?: Record<string, number>;
   line_filter?: Record<string, number>;
   overlays?: Overlays | null;
+  // 手検査のデバッグ（/api/inspect-hand のみ）
+  hand?: {
+    detected: boolean;
+    backend: string;
+    num_hands: number;
+    confidences: number[];
+    note: string | null;
+    features?: Record<string, unknown>[];
+    rule_details?: { hand: number; rules: Record<string, unknown>[] }[];
+  } | null;
 }
 
 export interface InspectOptions {
@@ -177,7 +228,7 @@ export interface ModelStatus {
   version: string;
 }
 
-// issue_type ごとの色（要件 §6）
+// issue_type ごとの色（皺=既存パレット / 手=ピンク・シアン系で別ファミリー）
 export const ISSUE_COLORS: Record<IssueType, string> = {
   gravity_inconsistency: "#4f8cff", // blue
   joint_inconsistency: "#ff4d4f", // red
@@ -185,6 +236,14 @@ export const ISSUE_COLORS: Record<IssueType, string> = {
   body_volume_inconsistency: "#a66bff", // purple
   density_inconsistency: "#36c08a", // green
   shadow_wrinkle_mismatch: "#9aa3b2", // gray
+  // hand family
+  joint_angle_anomaly: "#ff5da2", // pink
+  finger_length_anomaly: "#ff8fab", // light pink
+  thumb_position_anomaly: "#e254ff", // magenta
+  wrist_connection_anomaly: "#00c2d7", // cyan
+  finger_overlap_anomaly: "#ff7096", // rose
+  low_confidence_hand: "#8899aa", // muted blue-gray (informational)
+  hand_detection_failed: "#7a8699", // gray (informational)
 };
 
 export const GARMENT_OPTIONS: { value: GarmentType; label: string }[] = [
@@ -203,6 +262,14 @@ export const TYPE_LABELS: Record<IssueType, string> = {
   body_volume_inconsistency: "体の立体と皺の矛盾",
   density_inconsistency: "皺の密度が不自然",
   shadow_wrinkle_mismatch: "陰影と皺の不一致",
+  // hand family (English for MVP; Japanese localisation later)
+  joint_angle_anomaly: "Impossible joint angle",
+  finger_length_anomaly: "Unnatural finger length",
+  thumb_position_anomaly: "Thumb on wrong side",
+  wrist_connection_anomaly: "Implausible wrist connection",
+  finger_overlap_anomaly: "Fingers appear merged",
+  low_confidence_hand: "Low-confidence hand detection",
+  hand_detection_failed: "Hand detection unavailable",
 };
 
 export const FEEDBACK_OPTIONS: { value: FeedbackKind; label: string }[] = [

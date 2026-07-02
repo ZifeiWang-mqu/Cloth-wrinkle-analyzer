@@ -33,6 +33,28 @@ class IssueType(str, Enum):
     shadow_wrinkle_mismatch = "shadow_wrinkle_mismatch"
 
 
+class HandIssueType(str, Enum):
+    """Issue types for the hand-unnaturalness inspection (MVP set).
+
+    Landmark-geometry rules plus two informational statuses for when the
+    detector is unavailable or unsure. Count-based types (extra/missing
+    fingers) are a later phase — they need contour analysis, not landmarks.
+    """
+
+    joint_angle_anomaly = "joint_angle_anomaly"
+    finger_length_anomaly = "finger_length_anomaly"
+    thumb_position_anomaly = "thumb_position_anomaly"
+    wrist_connection_anomaly = "wrist_connection_anomaly"
+    finger_overlap_anomaly = "finger_overlap_anomaly"
+    low_confidence_hand = "low_confidence_hand"
+    hand_detection_failed = "hand_detection_failed"
+
+
+# Categories distinguishing the two inspection families.
+CATEGORY_WRINKLE = "wrinkle"
+CATEGORY_HAND = "hand"
+
+
 class Severity(str, Enum):
     low = "low"
     medium = "medium"
@@ -81,7 +103,11 @@ class EvidenceBox(BaseModel):
 
 class Issue(BaseModel):
     id: str
-    type: IssueType
+    # Validated union: wrinkle types or hand types (never unrestricted strings).
+    type: IssueType | HandIssueType
+    # Which inspection family produced this issue. Defaults to "wrinkle" so all
+    # existing producers/stored rows stay valid; hand inspection sets "hand".
+    category: str = CATEGORY_WRINKLE
     label: str  # 日本語の表示名
     severity: Severity
     bbox: BBox
@@ -116,6 +142,8 @@ class DebugInfo(BaseModel):
     removed_lines: dict[str, int] = Field(default_factory=dict)
     line_filter: dict[str, int] = Field(default_factory=dict)
     overlays: dict | None = None  # only when return_debug_overlays=true
+    # Hand-inspection debug block (only set by /api/inspect-hand).
+    hand: dict | None = None
 
 
 class InspectResponse(BaseModel):

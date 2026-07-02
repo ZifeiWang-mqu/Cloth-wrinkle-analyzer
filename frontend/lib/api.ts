@@ -23,15 +23,7 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
-export async function inspectWrinkle(
-  file: File,
-  garmentType: GarmentType,
-  region: RegionPolygon | null,
-  options?: Partial<InspectOptions>,
-): Promise<InspectResponse> {
-  const fd = new FormData();
-  fd.append("image", file);
-  fd.append("garment_type", garmentType);
+function appendRegion(fd: FormData, region: RegionPolygon | null): void {
   if (region && region.points.length >= 3) {
     // Lasso polygon in original-image pixel coords.
     const payload = {
@@ -41,6 +33,18 @@ export async function inspectWrinkle(
     };
     fd.append("selected_region", JSON.stringify(payload));
   }
+}
+
+export async function inspectWrinkle(
+  file: File,
+  garmentType: GarmentType,
+  region: RegionPolygon | null,
+  options?: Partial<InspectOptions>,
+): Promise<InspectResponse> {
+  const fd = new FormData();
+  fd.append("image", file);
+  fd.append("garment_type", garmentType);
+  appendRegion(fd, region);
   if (options) {
     if (options.use_segmentation !== undefined)
       fd.append("use_segmentation", String(options.use_segmentation));
@@ -53,6 +57,24 @@ export async function inspectWrinkle(
   }
 
   const res = await fetch(`${API_BASE}/api/inspect-wrinkle`, {
+    method: "POST",
+    body: fd,
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as InspectResponse;
+}
+
+export async function inspectHand(
+  file: File,
+  region: RegionPolygon | null,
+): Promise<InspectResponse> {
+  const fd = new FormData();
+  fd.append("image", file);
+  appendRegion(fd, region); // lasso doubles as the hand-detection hint
+  // Landmark overlays are tiny (21 points/hand) — always request them so the
+  // skeleton can be visually compared against the drawn hand.
+  fd.append("return_debug_overlays", "true");
+  const res = await fetch(`${API_BASE}/api/inspect-hand`, {
     method: "POST",
     body: fd,
   });

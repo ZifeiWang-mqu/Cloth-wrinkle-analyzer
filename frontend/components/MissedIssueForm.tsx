@@ -15,9 +15,10 @@ interface Props {
   onToggleAddMode: () => void;
   onSubmit: (issueType: IssueType, comment: string) => Promise<void>;
   onClearDraft: () => void;
+  types?: IssueType[]; // selectable types (defaults to all)
 }
 
-const TYPES = Object.keys(TYPE_LABELS) as IssueType[];
+const ALL_TYPES = Object.keys(TYPE_LABELS) as IssueType[];
 
 /**
  * Lets the user report a missed issue: enable add-mode, drag a box on the
@@ -29,8 +30,10 @@ export default function MissedIssueForm({
   onToggleAddMode,
   onSubmit,
   onClearDraft,
+  types,
 }: Props) {
-  const [issueType, setIssueType] = useState<IssueType>("joint_inconsistency");
+  const TYPES = types && types.length > 0 ? types : ALL_TYPES;
+  const [issueType, setIssueType] = useState<IssueType>(TYPES[0]);
   const [comment, setComment] = useState("");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">(
     "idle",

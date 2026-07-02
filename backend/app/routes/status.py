@@ -65,6 +65,7 @@ def debug_capabilities() -> dict:
 def model_reload() -> dict:
     """Hot-reload thresholds / anomaly model / reference stats / illustration model."""
     from app.services.anomaly_model import reset_anomaly_model_cache
+    from app.services.hand_detection import reset_hand_landmarker
     from app.services.illustration_model import reset_cache as reset_illu
     from app.services.reference_stats import reset_cache as reset_refstats
     from app.services.segmentation import reset_sam_segmenter
@@ -75,6 +76,7 @@ def model_reload() -> dict:
     reset_refstats()
     reset_illu()
     reset_sam_segmenter()
+    reset_hand_landmarker()
     return {"status": "reloaded"}
 
 
