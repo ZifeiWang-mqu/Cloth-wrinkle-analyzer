@@ -8,6 +8,7 @@ import {
   SEVERITY_LABELS,
   TYPE_LABELS,
 } from "@/lib/types";
+import AIReviewSection from "./AIReviewSection";
 import FeedbackButtons from "./FeedbackButtons";
 import ReviewPanel from "./ReviewPanel";
 
@@ -41,8 +42,8 @@ export default function ResultPanel({
   onSelectIssue,
   onFeedback,
 }: Props) {
-  const review = result.result === "needs_review";
   const hand = result.debug.hand;
+  const handDetectionFailed = !!hand && !hand.detected;
   const scoreEntries = Object.entries(result.debug.scores);
   const selected = result.issues.find((i) => i.id === selectedIssueId) || null;
 
@@ -51,15 +52,25 @@ export default function ResultPanel({
       <h2>検査結果</h2>
 
       <div className="score-banner">
-        <span className="score-pill">{result.overall_score.toFixed(2)}</span>
-        <div>
-          <span className={`badge ${review ? "review" : "ok"}`}>
-            {review ? "要確認の可能性あり" : "目立つ問題なし"}
-          </span>
-          <div className="hint">
-            {hand ? "異常スコア（1.0 に近いほど要確認）" : "総合スコア（1.0 に近いほど要確認）"}
-          </div>
-        </div>
+        {handDetectionFailed ? (
+          <>
+            <span className="score-pill score-pill-na">採点不可</span>
+            <div>
+              <div className="score-label">手が検出されませんでした</div>
+              <div className="hint">
+                手の範囲をなげなわで指定して再検査すると検出できる場合があります。
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className="score-pill">{result.overall_score.toFixed(2)}</span>
+            <div>
+              <div className="score-label">{hand ? "異常スコア" : "総合スコア"}</div>
+              <div className="hint">1.0 に近いほど要確認</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Hand-mode summary (always visible, even with zero issues) */}
@@ -97,6 +108,12 @@ export default function ResultPanel({
           })}
         </div>
       )}
+
+      {/* AI visual second opinion (backend-proxied; key stays server-side) */}
+      <AIReviewSection
+        key={`ai-${result.inspection_id}`}
+        inspectionId={result.inspection_id}
+      />
 
       {/* Per-inspection review (feeds the review-memory layer) */}
       <ReviewPanel

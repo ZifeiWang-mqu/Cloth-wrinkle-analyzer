@@ -232,6 +232,39 @@ export interface ReviewResponse {
   summary_text: string;
 }
 
+// --- AI視覚レビュー（バックエンド /api/inspection/ai-review） ------------- //
+export interface VisualProblem {
+  type: string;
+  description: string;
+  confidence: number; // 0..1
+}
+
+export interface AIReviewResponse {
+  summary: string;
+  detected_visual_problems: VisualProblem[];
+  detector_comparison: string;
+  recommended_action: string;
+  limitations: string;
+  meta: {
+    model: string;
+    mode: string;
+    language: string;
+    crop: { x: number; y: number; w: number; h: number; source: string };
+  };
+}
+
+export const VISUAL_PROBLEM_LABELS: Record<string, string> = {
+  missing_finger: "Missing finger",
+  extra_digit_like_shape: "Extra digit-like shape",
+  merged_fingers: "Merged fingers",
+  malformed_fingertip: "Malformed fingertip",
+  distorted_hand_shape: "Distorted hand shape",
+  unnatural_wrinkle: "Unnatural wrinkle",
+  shadow_wrinkle_mismatch: "Shadow/wrinkle mismatch",
+  unclear: "Unclear",
+  other: "Other",
+};
+
 export interface ModelStatus {
   model_loaded: boolean;
   model_type: string;

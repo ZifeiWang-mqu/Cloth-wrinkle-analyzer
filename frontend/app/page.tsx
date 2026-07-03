@@ -39,6 +39,9 @@ export default function Home() {
   const [garmentType, setGarmentType] = useState<GarmentType>("unknown");
   const [region, setRegion] = useState<RegionPolygon | null>(null);
   const [result, setResult] = useState<InspectResponse | null>(null);
+  // Mode that PRODUCED the current result (may differ from the selected mode
+  // after switching tabs — the result stays visible until replaced/cleared).
+  const [resultMode, setResultMode] = useState<InspectMode | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,6 +90,7 @@ export default function Home() {
     setPreviewUrl(URL.createObjectURL(f));
     setRegion(null);
     setResult(null);
+    setResultMode(null);
     setError(null);
     setSelectedIssueId(null);
     setDraftIssueBox(null);
@@ -104,6 +108,7 @@ export default function Home() {
           ? await inspectHand(file, region)
           : await inspectWrinkle(file, garmentType, region, options);
       setResult(res);
+      setResultMode(mode); // remember which mode produced this result
       setSelectedIssueId(null);
       setRegionEditMode(false);
     } catch (e) {
@@ -116,9 +121,8 @@ export default function Home() {
   function handleModeChange(next: InspectMode) {
     if (next === mode) return;
     setMode(next);
-    // Results/selection belong to the previous mode — clear to avoid mixing.
-    setResult(null);
-    setSelectedIssueId(null);
+    // Do NOT clear the current result — it stays visible (rendered with the
+    // mode that produced it) until a new analysis or a new image replaces it.
     setError(null);
     setAddMode(false);
     setRegionEditMode(true);
@@ -130,6 +134,7 @@ export default function Home() {
     setPreviewUrl(null);
     setRegion(null);
     setResult(null);
+    setResultMode(null);
     setError(null);
     setSelectedIssueId(null);
     setDraftIssueBox(null);
@@ -164,7 +169,7 @@ export default function Home() {
       issue_id: issueId,
       feedback: kind,
       image_id: file?.name ?? null,
-      garment_type: mode === "hand" ? "hand" : garmentType,
+      garment_type: displayMode === "hand" ? "hand" : garmentType,
       issue_type: issue?.type ?? null,
       original_bbox: issue?.bbox ?? null,
       confidence: issue?.confidence ?? null,
@@ -180,7 +185,7 @@ export default function Home() {
       inspection_id: result.inspection_id,
       feedback: "missed_issue",
       image_id: file?.name ?? null,
-      garment_type: mode === "hand" ? "hand" : garmentType,
+      garment_type: displayMode === "hand" ? "hand" : garmentType,
       issue_type: issueType,
       corrected_bbox: draftIssueBox,
       source: "web",
@@ -195,7 +200,11 @@ export default function Home() {
       ? "region"
       : "off";
 
-  const activeTypes: IssueType[] = mode === "hand" ? HAND_TYPES : WRINKLE_TYPES;
+  // Result-related UI (filters, missed-issue types, feedback) must follow the
+  // mode that produced the displayed result, not the currently selected tab.
+  const displayMode: InspectMode = resultMode ?? mode;
+  const activeTypes: IssueType[] =
+    displayMode === "hand" ? HAND_TYPES : WRINKLE_TYPES;
 
   const filteredIssues = useMemo(() => {
     if (!result) return [];
@@ -356,7 +365,7 @@ export default function Home() {
               />
               <hr className="sep" />
               <MissedIssueForm
-                key={mode}
+                key={displayMode}
                 types={activeTypes}
                 addMode={addMode}
                 draftBox={draftIssueBox}
