@@ -688,6 +688,61 @@ input[type="range"] {
   font-weight: 700;
 }
 
+/* Score banner (no judgment badge; score/label only) */
+.score-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+.score-pill-na {
+  font-size: 16px;
+  color: var(--muted);
+}
+
+/* AI visual review card */
+.ai-review {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel-2);
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.ai-review-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+.ai-review-result {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+.ai-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--accent);
+  margin-bottom: 2px;
+}
+.ai-section p {
+  margin: 0;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.ai-problems {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+.ai-problems li {
+  font-size: 13px;
+}
+.ai-problem-head {
+  font-weight: 600;
+}
+.ai-problem-desc {
+  color: var(--muted);
+}
+
 /* Per-inspection review panel (review memory) */
 .review-panel {
   border: 1px solid var(--border);

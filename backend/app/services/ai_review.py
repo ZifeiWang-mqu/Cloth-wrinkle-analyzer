@@ -245,6 +245,16 @@ def build_prompts(mode: str, language: str, context: dict) -> tuple[str, str]:
         f"free-text fields in {lang_name}. The 'type' field must use the "
         "allowed enum values (English)."
     )
+    if language == "ja":
+        system += (
+            " 一般ユーザー向けの自然な日本語で書いてください。"
+            "「偽陰性」「偽陽性」「false negative」「false positive」"
+            "「true positive」「true negative」などの専門用語は使わないでください。"
+            "代わりに「検出では見つけられなかった可能性があります」"
+            "「誤って検出された可能性があります」のような平易な表現を使ってください。"
+            "「検出器」ではなく「通常の自動検出」や「既存の検出処理」、"
+            "「クロップ」ではなく「選択範囲」「切り出した範囲」と表現してください。"
+        )
     checklist = _HAND_CHECKLIST if mode == "hand" else _WRINKLE_CHECKLIST
     user = (
         f"Mode: {mode} inspection.\n{checklist}\n\n"
@@ -260,16 +270,69 @@ def build_prompts(mode: str, language: str, context: dict) -> tuple[str, str]:
 
 
 # --------------------------------------------------------------------------- #
+# Japanese wording safety net (user-facing text only; enum values untouched)
+# --------------------------------------------------------------------------- #
+JA_AI_REVIEW_REPLACEMENTS: dict[str, str] = {
+    "偽陰性": "検出では見つけられなかった可能性",
+    "偽陽性": "実際には問題がないのに検出された可能性",
+    "false negative": "検出では見つけられなかった可能性",
+    "false positive": "誤って検出された可能性",
+    "true positive": "正しく検出された可能性",
+    "true negative": "問題なしと判断された可能性",
+    "クロップ": "選択範囲",
+}
+
+# English phrases matched case-insensitively (the model may capitalize them).
+_JA_ASCII_PATTERN = None
+
+
+def _sanitize_ja_text(text: str) -> str:
+    global _JA_ASCII_PATTERN
+    import re
+
+    if _JA_ASCII_PATTERN is None:
+        ascii_keys = [k for k in JA_AI_REVIEW_REPLACEMENTS if k.isascii()]
+        _JA_ASCII_PATTERN = re.compile(
+            "|".join(re.escape(k) for k in ascii_keys), re.IGNORECASE
+        )
+    for jp_key, replacement in JA_AI_REVIEW_REPLACEMENTS.items():
+        if not jp_key.isascii():
+            text = text.replace(jp_key, replacement)
+    return _JA_ASCII_PATTERN.sub(
+        lambda m: JA_AI_REVIEW_REPLACEMENTS[m.group(0).lower()], text
+    )
+
+
+def sanitize_ja_review(parsed: dict) -> dict:
+    """Replace technical ML terms with natural Japanese in user-facing fields.
+
+    Mutates and returns ``parsed``. Only text fields are touched — the
+    ``type`` enum values of detected_visual_problems stay as-is.
+    """
+    for field in ("summary", "detector_comparison", "recommended_action", "limitations"):
+        if isinstance(parsed.get(field), str):
+            parsed[field] = _sanitize_ja_text(parsed[field])
+    for problem in parsed.get("detected_visual_problems") or []:
+        if isinstance(problem, dict) and isinstance(problem.get("description"), str):
+            problem["description"] = _sanitize_ja_text(problem["description"])
+    return parsed
+
+
+# --------------------------------------------------------------------------- #
 # Network seam + output extraction
 # --------------------------------------------------------------------------- #
 def _post_responses(payload: dict, api_key: str, timeout_s: float) -> dict:
     """The ONLY network call. Tests monkeypatch this function."""
     import httpx  # deferred; already a project dependency
 
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
     resp = httpx.post(
         OPENAI_RESPONSES_URL,
         json=payload,
-        headers={"Authorization": f"Bearer {api_key}"},
+        headers=headers,
         timeout=timeout_s,
     )
     resp.raise_for_status()
@@ -354,6 +417,17 @@ def run_ai_review(
 
     try:
         raw = _post_responses(payload, _resolved_key(), settings.ai_review_timeout_s)
+    except httpx.HTTPStatusError as exc:
+        if exc.response is not None and exc.response.status_code in (401, 403):
+            diag = settings.openai_key_diagnostics()
+            raise AIReviewUpstreamError(
+                "OpenAI APIキーが無効、またはbackendが古い/別のキーを使用しています。"
+                "WRINKLE_OPENAI_API_KEYとOPENAI_API_KEYを確認してください"
+                "（キー変更後はbackendの再起動が必要です）。"
+                f" key_source={diag['key_source']},"
+                f" key_prefix={diag['key_prefix']}, key_length={diag['key_length']}"
+            ) from exc
+        raise AIReviewUpstreamError(str(exc)[:200]) from exc
     except httpx.HTTPError as exc:
         raise AIReviewUpstreamError(str(exc)[:200]) from exc
 
@@ -363,6 +437,11 @@ def run_ai_review(
         raise AIReviewParseError(f"model returned non-JSON output: {str(exc)[:120]}") from exc
     if not isinstance(parsed, dict):
         raise AIReviewParseError("model output is not a JSON object")
+
+    # Safety net: even if the model ignores the prompt instruction, technical
+    # ML terms never reach the Japanese UI.
+    if language == "ja":
+        sanitize_ja_review(parsed)
 
     parsed["meta"] = {
         "model": settings.openai_model,

@@ -51,7 +51,12 @@ export default function ImageUploader({ onFile, disabled }: Props) {
         type="file"
         accept={ACCEPT.join(",")}
         style={{ display: "none" }}
-        onChange={(e) => handle(e.target.files?.[0])}
+        onChange={(e) => {
+          handle(e.target.files?.[0]);
+          // Reset so selecting the SAME file again still fires onChange
+          // (browsers skip the event when the input value is unchanged).
+          e.target.value = "";
+        }}
       />
       {error && <div className="error">{error}</div>}
     </div>

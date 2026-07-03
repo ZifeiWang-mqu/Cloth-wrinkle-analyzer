@@ -168,8 +168,33 @@ class Settings(BaseSettings):
 
     @property
     def resolved_openai_key(self) -> str:
-        """WRINKLE_OPENAI_API_KEY, falling back to the conventional OPENAI_API_KEY."""
-        return self.openai_api_key or os.getenv("OPENAI_API_KEY", "")
+        """WRINKLE_OPENAI_API_KEY (env or .env, captured at process start),
+        falling back to the conventional OPENAI_API_KEY. Whitespace-stripped —
+        a trailing newline in .env must not produce a 401."""
+        key = (self.openai_api_key or "").strip()
+        if key:
+            return key
+        return (os.getenv("OPENAI_API_KEY") or "").strip()
+
+    def openai_key_diagnostics(self) -> dict:
+        """Safe key diagnostics: source, short prefix, length — NEVER the key."""
+        wrinkle = (self.openai_api_key or "").strip()
+        fallback = (os.getenv("OPENAI_API_KEY") or "").strip()
+        key = wrinkle or fallback
+        if wrinkle:
+            source = "WRINKLE_OPENAI_API_KEY"
+        elif fallback:
+            source = "OPENAI_API_KEY"
+        else:
+            source = "none"
+        return {
+            "key_source": source,
+            "key_prefix": key[:8] if key else None,
+            "key_length": len(key),
+            # True when a WRINKLE_ key is shadowing a DIFFERENT OPENAI_API_KEY —
+            # the classic "shell test works but the app 401s" situation.
+            "shadows_openai_api_key": bool(wrinkle and fallback and wrinkle != fallback),
+        }
 
     @property
     def illustration_model_path(self) -> Path:

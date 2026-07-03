@@ -1,6 +1,7 @@
 // Thin client for the FastAPI backend.
 
 import type {
+  AIReviewResponse,
   FeedbackRequest,
   FeedbackResponse,
   GarmentType,
@@ -104,6 +105,42 @@ export async function saveReview(payload: ReviewRequest): Promise<ReviewResponse
   });
   if (!res.ok) throw new Error(await parseError(res));
   return (await res.json()) as ReviewResponse;
+}
+
+// --- AI視覚レビュー ---------------------------------------------------------- //
+let _aiCapability: { available: boolean; model?: string } | undefined;
+
+/** Whether the backend has an OpenAI key configured (cached per page load). */
+export async function getAIReviewCapability(): Promise<{
+  available: boolean;
+  model?: string;
+}> {
+  if (_aiCapability !== undefined) return _aiCapability;
+  try {
+    const res = await fetch(`${API_BASE}/api/debug/capabilities`);
+    if (!res.ok) throw new Error(String(res.status));
+    const data = await res.json();
+    _aiCapability = {
+      available: Boolean(data?.ai_review?.available),
+      model: data?.ai_review?.model,
+    };
+  } catch {
+    _aiCapability = { available: false };
+  }
+  return _aiCapability;
+}
+
+export async function requestAIReview(
+  inspectionId: string,
+  language: "ja" | "en" = "ja",
+): Promise<AIReviewResponse> {
+  const res = await fetch(`${API_BASE}/api/inspection/ai-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inspection_id: inspectionId, language }),
+  });
+  if (!res.ok) throw new Error(await parseError(res));
+  return (await res.json()) as AIReviewResponse;
 }
 
 export async function getModelStatus(): Promise<ModelStatus> {

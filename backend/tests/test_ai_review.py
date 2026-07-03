@@ -212,6 +212,131 @@ def test_502_on_upstream_error(client, with_key, monkeypatch):
     assert "OpenAI" in r.text
 
 
+def test_502_on_401_gives_key_guidance(client, with_key, monkeypatch):
+    import httpx
+
+    def unauthorized(*a, **k):
+        req = httpx.Request("POST", ai_review.OPENAI_RESPONSES_URL)
+        resp = httpx.Response(401, request=req)
+        raise httpx.HTTPStatusError("401 Unauthorized", request=req, response=resp)
+
+    monkeypatch.setattr(ai_review, "_post_responses", unauthorized)
+    iid = _make_hand_inspection(client, monkeypatch)
+    r = client.post("/api/inspection/ai-review", json={"inspection_id": iid})
+    assert r.status_code == 502
+    assert "OpenAI APIキーが無効" in r.text
+    assert "WRINKLE_OPENAI_API_KEY" in r.text
+    assert "key_source=" in r.text
+    # the actual key value never appears (only a short prefix is allowed)
+    assert "test-key-secret" not in r.text
+
+
+# --------------------------------------------------------------------------- #
+# Japanese wording sanitizer
+# --------------------------------------------------------------------------- #
+def test_ja_sanitizer_replaces_technical_terms():
+    from app.services.ai_review import sanitize_ja_review
+
+    parsed = {
+        "summary": "これは偽陰性の可能性があります。",
+        "detector_comparison": "検出結果は False Positive かもしれません。",
+        "recommended_action": "クロップを広げて確認してください。",
+        "limitations": "true negative の判断はできません。",
+        "detected_visual_problems": [
+            {"type": "missing_finger", "description": "偽陽性ではありません。", "confidence": 0.5}
+        ],
+    }
+    sanitize_ja_review(parsed)
+    assert "偽陰性" not in parsed["summary"]
+    assert "検出では見つけられなかった可能性" in parsed["summary"]
+    assert "False Positive" not in parsed["detector_comparison"]  # case-insensitive
+    assert "誤って検出された可能性" in parsed["detector_comparison"]
+    assert "クロップ" not in parsed["recommended_action"]
+    assert "選択範囲" in parsed["recommended_action"]
+    assert "true negative" not in parsed["limitations"]
+    desc = parsed["detected_visual_problems"][0]
+    assert "偽陽性" not in desc["description"]
+    # enum value untouched
+    assert desc["type"] == "missing_finger"
+
+
+def test_ja_sanitizer_applied_end_to_end(client, with_key, monkeypatch):
+    dirty = dict(_MODEL_JSON)
+    dirty["summary"] = "偽陰性の可能性があります（false negative）。"
+    monkeypatch.setattr(ai_review, "_post_responses", lambda *a, **k: _canned(dirty))
+    iid = _make_hand_inspection(client, monkeypatch)
+    r = client.post(
+        "/api/inspection/ai-review", json={"inspection_id": iid, "language": "ja"}
+    )
+    assert r.status_code == 200, r.text
+    summary = r.json()["summary"]
+    assert "偽陰性" not in summary and "false negative" not in summary
+    assert "検出では見つけられなかった可能性" in summary
+
+
+def test_ja_prompt_contains_wording_instruction(client, with_key, monkeypatch):
+    captured: dict = {}
+
+    def fake_post(payload, api_key, timeout_s):
+        captured["payload"] = payload
+        return _canned(_MODEL_JSON)
+
+    monkeypatch.setattr(ai_review, "_post_responses", fake_post)
+    iid = _make_hand_inspection(client, monkeypatch)
+    client.post("/api/inspection/ai-review", json={"inspection_id": iid, "language": "ja"})
+    system_text = captured["payload"]["input"][0]["content"][0]["text"]
+    assert "偽陰性" in system_text and "平易な表現" in system_text
+
+
+# --------------------------------------------------------------------------- #
+# Key resolution / diagnostics (safe — never the full key)
+# --------------------------------------------------------------------------- #
+def test_resolved_key_is_stripped(monkeypatch):
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "openai_api_key", "  sk-test-abc123\n")
+    assert settings.resolved_openai_key == "sk-test-abc123"
+
+
+def test_key_diagnostics_source_and_prefix(monkeypatch):
+    from app.settings import settings
+
+    # WRINKLE_ key wins and shadows a different OPENAI_API_KEY
+    monkeypatch.setattr(settings, "openai_api_key", "sk-wrinkle-1234567890")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-other-key")
+    diag = settings.openai_key_diagnostics()
+    assert diag["key_source"] == "WRINKLE_OPENAI_API_KEY"
+    assert diag["key_prefix"] == "sk-wrink"
+    assert diag["key_length"] == len("sk-wrinkle-1234567890")
+    assert diag["shadows_openai_api_key"] is True
+    # full key never present in the diagnostics values
+    assert "sk-wrinkle-1234567890" not in str(diag)
+
+    # fallback path
+    monkeypatch.setattr(settings, "openai_api_key", "")
+    diag = settings.openai_key_diagnostics()
+    assert diag["key_source"] == "OPENAI_API_KEY"
+    assert diag["shadows_openai_api_key"] is False
+
+    # none
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    diag = settings.openai_key_diagnostics()
+    assert diag["key_source"] == "none" and diag["key_prefix"] is None
+
+
+def test_capabilities_exposes_key_diagnostics_not_key(client, monkeypatch):
+    from app.settings import settings
+
+    monkeypatch.setattr(settings, "openai_api_key", "sk-diagtest-abcdefer123456")
+    r = client.get("/api/debug/capabilities")
+    ai = r.json()["ai_review"]
+    assert ai["available"] is True
+    assert ai["key_source"] == "WRINKLE_OPENAI_API_KEY"
+    assert ai["key_prefix"] == "sk-diagt"
+    assert ai["key_length"] == len("sk-diagtest-abcdefer123456")
+    assert "sk-diagtest-abcdefer123456" not in r.text
+
+
 # --------------------------------------------------------------------------- #
 # Crop selection (pure)
 # --------------------------------------------------------------------------- #

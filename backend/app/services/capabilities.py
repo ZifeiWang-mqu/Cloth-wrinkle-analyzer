@@ -88,9 +88,10 @@ def get_capabilities(settings: Settings) -> dict:
             "reason": illu_reason,
         },
         # Optional GPT visual second opinion (server-side key only; the key
-        # itself is never exposed here).
+        # itself is never exposed here — source/prefix/length diagnostics only).
         "ai_review": {
             "available": bool(settings.resolved_openai_key),
             "model": settings.openai_model,
+            **settings.openai_key_diagnostics(),
         },
     }
